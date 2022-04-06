@@ -1460,6 +1460,8 @@ public class AdapterService extends Service {
                 return false;
             }
 
+            enforceBluetoothPrivilegedPermission(service);
+
             return service.mAdapterProperties.setDiscoverableTimeout(timeout);
         }
 
