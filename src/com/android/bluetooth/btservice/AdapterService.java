@@ -1433,6 +1433,8 @@ public class AdapterService extends Service {
                 return false;
             }
 
+            enforceBluetoothPrivilegedPermission(service);
+
             service.mAdapterProperties.setDiscoverableTimeout(duration);
             return service.mAdapterProperties.setScanMode(convertScanModeToHal(mode));
         }
@@ -1457,6 +1459,8 @@ public class AdapterService extends Service {
                             service, attributionSource, "AdapterService setDiscoverableTimeout")) {
                 return false;
             }
+
+            enforceBluetoothPrivilegedPermission(service);
 
             return service.mAdapterProperties.setDiscoverableTimeout(timeout);
         }
