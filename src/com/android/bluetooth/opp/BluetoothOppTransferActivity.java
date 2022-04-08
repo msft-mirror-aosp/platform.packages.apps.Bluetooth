@@ -32,8 +32,6 @@
 
 package com.android.bluetooth.opp;
 
-import static android.view.WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
-
 import android.app.NotificationManager;
 import android.bluetooth.AlertActivity;
 import android.bluetooth.BluetoothAdapter;
@@ -131,8 +129,6 @@ public class BluetoothOppTransferActivity extends AlertActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        getWindow().addPrivateFlags(SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
         Intent intent = getIntent();
         mUri = intent.getData();
 

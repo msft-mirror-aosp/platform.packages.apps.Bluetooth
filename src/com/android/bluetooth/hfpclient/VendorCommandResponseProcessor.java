@@ -20,8 +20,6 @@
  */
 package com.android.bluetooth.hfpclient;
 
-import static android.Manifest.permission.BLUETOOTH_CONNECT;
-
 import android.bluetooth.BluetoothAssignedNumbers;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHeadsetClient;
@@ -164,7 +162,7 @@ class VendorCommandResponseProcessor {
         intent.putExtra(BluetoothHeadsetClient.EXTRA_VENDOR_EVENT_CODE, vendorEventCode);
         intent.putExtra(BluetoothHeadsetClient.EXTRA_VENDOR_EVENT_FULL_ARGS, vendorResponse);
         intent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
-        mService.sendBroadcast(intent, BLUETOOTH_CONNECT, Utils.getTempAllowlistBroadcastOptions());
+        mService.sendBroadcast(intent, HeadsetClientService.BLUETOOTH_PERM);
     }
 
     private void logD(String msg) {

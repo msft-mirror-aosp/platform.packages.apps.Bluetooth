@@ -32,9 +32,8 @@
 
 package com.android.bluetooth.opp;
 
-import static android.view.WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
-
 import android.bluetooth.AlertActivity;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
@@ -46,14 +45,14 @@ import com.android.bluetooth.R;
 /**
  * This class is designed to show BT enable confirmation dialog;
  */
-public class BluetoothOppBtEnableActivity extends AlertActivity {
+public class BluetoothOppBtEnableActivity extends AlertActivity
+        implements DialogInterface.OnClickListener {
     private BluetoothOppManager mOppManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        getWindow().addPrivateFlags(SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
         // Set up the "dialog"
         mOppManager = BluetoothOppManager.getInstance(this);
         mOppManager.mSendingFlag = false;
@@ -61,9 +60,8 @@ public class BluetoothOppBtEnableActivity extends AlertActivity {
         mAlertBuilder.setIconAttribute(android.R.attr.alertDialogIcon);
         mAlertBuilder.setTitle(getString(R.string.bt_enable_title));
         mAlertBuilder.setView(createView());
-        mAlertBuilder.setPositiveButton(R.string.bt_enable_ok,
-                (dialog, which) -> onEnableBluetooth());
-        mAlertBuilder.setNegativeButton(R.string.bt_enable_cancel, (dialog, which) -> finish());
+        mAlertBuilder.setPositiveButton(R.string.bt_enable_ok, this);
+        mAlertBuilder.setNegativeButton(R.string.bt_enable_cancel, this);
         setupAlert();
     }
 
@@ -77,18 +75,27 @@ public class BluetoothOppBtEnableActivity extends AlertActivity {
         return view;
     }
 
-    private void onEnableBluetooth() {
-        mOppManager.enableBluetooth(); // this is an asyn call
-        mOppManager.mSendingFlag = true;
+    @Override
+    public void onClick(DialogInterface dialog, int which) {
+        switch (which) {
+            case DialogInterface.BUTTON_POSITIVE:
+                mOppManager.enableBluetooth(); // this is an asyn call
+                mOppManager.mSendingFlag = true;
 
-        Toast.makeText(this, getString(R.string.enabling_progress_content),
-                Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.enabling_progress_content),
+                        Toast.LENGTH_SHORT).show();
 
-        Intent in = new Intent(this, BluetoothOppBtEnablingActivity.class);
-        in.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        this.startActivity(in);
+                Intent in = new Intent(this, BluetoothOppBtEnablingActivity.class);
+                in.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                this.startActivity(in);
 
-        finish();
+                finish();
+                break;
+
+            case DialogInterface.BUTTON_NEGATIVE:
+                finish();
+                break;
+        }
     }
 
     @Override

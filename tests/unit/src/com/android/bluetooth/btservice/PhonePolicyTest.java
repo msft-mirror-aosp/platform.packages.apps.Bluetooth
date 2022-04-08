@@ -16,9 +16,6 @@
 
 package com.android.bluetooth.btservice;
 
-import static com.android.bluetooth.TestUtils.getTestDevice;
-import static com.android.bluetooth.TestUtils.waitForLooperToFinishScheduledTask;
-
 import static org.mockito.Mockito.*;
 
 import android.bluetooth.BluetoothA2dp;
@@ -79,7 +76,6 @@ public class PhonePolicyTest {
         TestUtils.setAdapterService(mAdapterService);
         // Configure the maximum connected audio devices
         doReturn(MAX_CONNECTED_AUDIO_DEVICES).when(mAdapterService).getMaxConnectedAudioDevices();
-        doReturn(mDatabaseManager).when(mAdapterService).getDatabase();
         // Setup the mocked factory to return mocked services
         doReturn(mHeadsetService).when(mServiceFactory).getHeadsetService();
         doReturn(mA2dpService).when(mServiceFactory).getA2dpService();
@@ -87,7 +83,7 @@ public class PhonePolicyTest {
         mHandlerThread = new HandlerThread("PhonePolicyTestHandlerThread");
         mHandlerThread.start();
         // Mock the looper
-        when(mAdapterService.getMainLooper()).thenReturn(mHandlerThread.getLooper());
+        doReturn(mHandlerThread.getLooper()).when(mAdapterService).getMainLooper();
         // Tell the AdapterService that it is a mock (see isMock documentation)
         doReturn(true).when(mAdapterService).isMock();
         // Must be called to initialize services
@@ -98,9 +94,7 @@ public class PhonePolicyTest {
 
     @After
     public void tearDown() throws Exception {
-        if (mHandlerThread != null) {
-            mHandlerThread.quitSafely();
-        }
+        mHandlerThread.quit();
         TestUtils.clearAdapterService(mAdapterService);
     }
 
@@ -111,7 +105,7 @@ public class PhonePolicyTest {
      */
     @Test
     public void testProcessInitProfilePriorities() {
-        BluetoothDevice device = getTestDevice(mAdapter, 0);
+        BluetoothDevice device = TestUtils.getTestDevice(mAdapter, 0);
         // Mock the HeadsetService to return unknown connection policy
         when(mHeadsetService.getConnectionPolicy(device))
                 .thenReturn(BluetoothProfile.CONNECTION_POLICY_UNKNOWN);
@@ -153,7 +147,8 @@ public class PhonePolicyTest {
         when(mAdapterService.isQuietModeEnabled()).thenReturn(false);
 
         // Return a list of connection order
-        BluetoothDevice bondedDevice = getTestDevice(mAdapter, 0);
+        BluetoothDevice bondedDevice = TestUtils.getTestDevice(mAdapter, 0);
+        when(mAdapterService.getDatabase()).thenReturn(mDatabaseManager);
         when(mDatabaseManager.getMostRecentlyConnectedA2dpDevice()).thenReturn(bondedDevice);
         when(mAdapterService.getBondState(bondedDevice)).thenReturn(BluetoothDevice.BOND_BONDED);
 
@@ -184,11 +179,12 @@ public class PhonePolicyTest {
 
         // Return a list of connection order
         List<BluetoothDevice> connectionOrder = new ArrayList<>();
-        connectionOrder.add(getTestDevice(mAdapter, 0));
-        connectionOrder.add(getTestDevice(mAdapter, 1));
-        connectionOrder.add(getTestDevice(mAdapter, 2));
-        connectionOrder.add(getTestDevice(mAdapter, 3));
+        connectionOrder.add(TestUtils.getTestDevice(mAdapter, 0));
+        connectionOrder.add(TestUtils.getTestDevice(mAdapter, 1));
+        connectionOrder.add(TestUtils.getTestDevice(mAdapter, 2));
+        connectionOrder.add(TestUtils.getTestDevice(mAdapter, 3));
 
+        when(mAdapterService.getDatabase()).thenReturn(mDatabaseManager);
         when(mDatabaseManager.getMostRecentlyConnectedA2dpDevice()).thenReturn(
                 connectionOrder.get(0));
 
@@ -207,7 +203,6 @@ public class PhonePolicyTest {
         intent.putExtra(BluetoothDevice.EXTRA_DEVICE, connectionOrder.get(0));
         intent.addFlags(Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
         mPhonePolicy.getBroadcastReceiver().onReceive(null /* context */, intent);
-        waitForLooperToFinishScheduledTask(mHandlerThread.getLooper());
 
         // Only calls setConnection on device connectionOrder.get(0) with STATE_CONNECTED
         verify(mDatabaseManager, timeout(ASYNC_CALL_TIMEOUT_MILLIS)).setConnection(
@@ -223,7 +218,6 @@ public class PhonePolicyTest {
         intent.putExtra(BluetoothDevice.EXTRA_DEVICE, connectionOrder.get(1));
         intent.addFlags(Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
         mPhonePolicy.getBroadcastReceiver().onReceive(null /* context */, intent);
-        waitForLooperToFinishScheduledTask(mHandlerThread.getLooper());
 
         // Only calls setConnection on device connectionOrder.get(1) with STATE_CONNECTED
         verify(mDatabaseManager, timeout(ASYNC_CALL_TIMEOUT_MILLIS).times(1)).setConnection(
@@ -242,7 +236,6 @@ public class PhonePolicyTest {
         intent.putExtra(BluetoothProfile.EXTRA_STATE, BluetoothProfile.STATE_DISCONNECTED);
         intent.addFlags(Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
         mPhonePolicy.getBroadcastReceiver().onReceive(null /* context */, intent);
-        waitForLooperToFinishScheduledTask(mHandlerThread.getLooper());
 
         // Verify that we do not call setConnection, but instead setDisconnection on disconnect
         verify(mDatabaseManager, timeout(ASYNC_CALL_TIMEOUT_MILLIS).times(1)).setConnection(
@@ -255,7 +248,6 @@ public class PhonePolicyTest {
                 BluetoothProfile.STATE_DISCONNECTED);
         updateProfileConnectionStateHelper(connectionOrder.get(1), BluetoothProfile.HEADSET,
                 BluetoothProfile.STATE_DISCONNECTED, BluetoothProfile.STATE_CONNECTING);
-        waitForLooperToFinishScheduledTask(mHandlerThread.getLooper());
 
         // Verify we don't call deleteConnection as that only happens when we disconnect a2dp
         verify(mDatabaseManager, timeout(ASYNC_CALL_TIMEOUT_MILLIS).times(1)).setDisconnection(
@@ -274,7 +266,7 @@ public class PhonePolicyTest {
     public void testReconnectOnPartialConnect() {
         // Return a list of bonded devices (just one)
         BluetoothDevice[] bondedDevices = new BluetoothDevice[1];
-        bondedDevices[0] = getTestDevice(mAdapter, 0);
+        bondedDevices[0] = TestUtils.getTestDevice(mAdapter, 0);
         when(mAdapterService.getBondedDevices()).thenReturn(bondedDevices);
 
         // Return PRIORITY_AUTO_CONNECT over HFP and A2DP. This would imply that the profiles are
@@ -314,7 +306,8 @@ public class PhonePolicyTest {
     @Test
     public void testReconnectOnPartialConnect_PreviousPartialFail() {
         List<BluetoothDevice> connectionOrder = new ArrayList<>();
-        connectionOrder.add(getTestDevice(mAdapter, 0));
+        connectionOrder.add(TestUtils.getTestDevice(mAdapter, 0));
+        when(mAdapterService.getDatabase()).thenReturn(mDatabaseManager);
         when(mDatabaseManager.getMostRecentlyConnectedA2dpDevice()).thenReturn(
                 connectionOrder.get(0));
 
@@ -351,7 +344,7 @@ public class PhonePolicyTest {
         updateProfileConnectionStateHelper(connectionOrder.get(0), BluetoothProfile.A2DP,
                 BluetoothProfile.STATE_DISCONNECTED, BluetoothProfile.STATE_CONNECTING);
 
-        waitForLooperToFinishScheduledTask(mHandlerThread.getLooper());
+        TestUtils.waitForLooperToFinishScheduledTask(mHandlerThread.getLooper());
 
         // Verify no one changes the priority of the failed profile
         verify(mA2dpService, never()).setConnectionPolicy(eq(connectionOrder.get(0)), anyInt());
@@ -369,7 +362,7 @@ public class PhonePolicyTest {
         updateProfileConnectionStateHelper(connectionOrder.get(0), BluetoothProfile.HEADSET,
                 BluetoothProfile.STATE_DISCONNECTED, BluetoothProfile.STATE_CONNECTED);
 
-        waitForLooperToFinishScheduledTask(mHandlerThread.getLooper());
+        TestUtils.waitForLooperToFinishScheduledTask(mHandlerThread.getLooper());
 
         // Send a connection success event for one profile again to trigger re-connect
         hsConnectedDevices.add(connectionOrder.get(0));
@@ -398,7 +391,7 @@ public class PhonePolicyTest {
         BluetoothDevice a2dpNotConnectedDevice2 = null;
 
         for (int i = 0; i < kMaxTestDevices; i++) {
-            BluetoothDevice testDevice = getTestDevice(mAdapter, i);
+            BluetoothDevice testDevice = TestUtils.getTestDevice(mAdapter, i);
             testDevices[i] = testDevice;
 
             // Return PRIORITY_AUTO_CONNECT over HFP and A2DP. This would imply that the profiles
@@ -466,7 +459,7 @@ public class PhonePolicyTest {
         ArrayList<BluetoothDevice> a2dpConnectedDevices = new ArrayList<>();
 
         for (int i = 0; i < kMaxTestDevices; i++) {
-            BluetoothDevice testDevice = getTestDevice(mAdapter, i);
+            BluetoothDevice testDevice = TestUtils.getTestDevice(mAdapter, i);
             testDevices[i] = testDevice;
 
             // Connect HFP and A2DP for each device as appropriate.
@@ -604,7 +597,7 @@ public class PhonePolicyTest {
     public void testNoReconnectOnNoConnect() {
         // Return a list of bonded devices (just one)
         BluetoothDevice[] bondedDevices = new BluetoothDevice[1];
-        bondedDevices[0] = getTestDevice(mAdapter, 0);
+        bondedDevices[0] = TestUtils.getTestDevice(mAdapter, 0);
         when(mAdapterService.getBondedDevices()).thenReturn(bondedDevices);
 
         // Return PRIORITY_AUTO_CONNECT over HFP and A2DP. This would imply that the profiles are
@@ -649,8 +642,8 @@ public class PhonePolicyTest {
     public void testNoReconnectOnNoConnect_MultiDevice() {
         // Return a list of bonded devices (just one)
         BluetoothDevice[] bondedDevices = new BluetoothDevice[2];
-        bondedDevices[0] = getTestDevice(mAdapter, 0);
-        bondedDevices[1] = getTestDevice(mAdapter, 1);
+        bondedDevices[0] = TestUtils.getTestDevice(mAdapter, 0);
+        bondedDevices[1] = TestUtils.getTestDevice(mAdapter, 1);
         when(mAdapterService.getBondedDevices()).thenReturn(bondedDevices);
 
         // Return PRIORITY_AUTO_CONNECT over HFP and A2DP. This would imply that the profiles are
@@ -704,8 +697,8 @@ public class PhonePolicyTest {
     public void testReconnectOnPartialConnect_MultiDevice() {
         // Return a list of bonded devices (just one)
         BluetoothDevice[] bondedDevices = new BluetoothDevice[2];
-        bondedDevices[0] = getTestDevice(mAdapter, 0);
-        bondedDevices[1] = getTestDevice(mAdapter, 1);
+        bondedDevices[0] = TestUtils.getTestDevice(mAdapter, 0);
+        bondedDevices[1] = TestUtils.getTestDevice(mAdapter, 1);
         when(mAdapterService.getBondedDevices()).thenReturn(bondedDevices);
 
         // Return PRIORITY_AUTO_CONNECT over HFP and A2DP. This would imply that the profiles are
@@ -751,7 +744,7 @@ public class PhonePolicyTest {
     @Test
     public void testNoSupportedUuids() {
         // Mock the HeadsetService to return undefined priority
-        BluetoothDevice device = getTestDevice(mAdapter, 0);
+        BluetoothDevice device = TestUtils.getTestDevice(mAdapter, 0);
         when(mHeadsetService.getConnectionPolicy(device))
                 .thenReturn(BluetoothProfile.CONNECTION_POLICY_UNKNOWN);
 

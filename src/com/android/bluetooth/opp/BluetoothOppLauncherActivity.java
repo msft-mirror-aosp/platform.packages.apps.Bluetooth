@@ -32,8 +32,6 @@
 
 package com.android.bluetooth.opp;
 
-import static android.view.WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
-
 import android.app.Activity;
 import android.bluetooth.BluetoothDevicePicker;
 import android.content.ContentResolver;
@@ -75,7 +73,6 @@ public class BluetoothOppLauncherActivity extends Activity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        getWindow().addPrivateFlags(SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
         Intent intent = getIntent();
         String action = intent.getAction();
         if (action == null) {
@@ -194,7 +191,8 @@ public class BluetoothOppLauncherActivity extends Activity {
                 Log.v(TAG, "Get ACTION_OPEN intent: Uri = " + uri);
             }
 
-            Intent intent1 = new Intent(Constants.ACTION_OPEN);
+            Intent intent1 = new Intent();
+            intent1.setAction(action);
             intent1.setClassName(Constants.THIS_PACKAGE_NAME, BluetoothOppReceiver.class.getName());
             intent1.setDataAndNormalize(uri);
             this.sendBroadcast(intent1);

@@ -34,6 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.File;
 import java.io.InputStream;
 
 /**
@@ -88,8 +89,9 @@ public final class AvrcpCoverArtStorageTest {
     }
 
     private void assertImageSame(Bitmap expected, BluetoothDevice device, String handle) {
-        Bitmap image = mAvrcpCoverArtStorage.getImage(device, handle);
-        Assert.assertTrue(expected.sameAs(image));
+        File file = mAvrcpCoverArtStorage.getImageFile(device, handle);
+        Bitmap fromStorage = BitmapFactory.decodeFile(file.getPath());
+        Assert.assertTrue(expected.sameAs(fromStorage));
     }
 
     @Test
@@ -201,29 +203,29 @@ public final class AvrcpCoverArtStorageTest {
     @Test
     public void getImageThatDoesntExist_returnsNull() {
         Assert.assertFalse(mAvrcpCoverArtStorage.doesImageExist(mDevice1, mHandle1));
-        Bitmap image = mAvrcpCoverArtStorage.getImage(mDevice1, mHandle1);
-        Assert.assertEquals(null, image);
+        File file = mAvrcpCoverArtStorage.getImageFile(mDevice1, mHandle1);
+        Assert.assertEquals(null, file);
     }
 
     @Test
     public void getImageNullDevice_returnsNull() {
         Assert.assertFalse(mAvrcpCoverArtStorage.doesImageExist(mDevice1, mHandle1));
-        Bitmap image = mAvrcpCoverArtStorage.getImage(null, mHandle1);
-        Assert.assertEquals(null, image);
+        File file = mAvrcpCoverArtStorage.getImageFile(null, mHandle1);
+        Assert.assertEquals(null, file);
     }
 
     @Test
     public void getImageNullHandle_returnsNull() {
         Assert.assertFalse(mAvrcpCoverArtStorage.doesImageExist(mDevice1, mHandle1));
-        Bitmap image = mAvrcpCoverArtStorage.getImage(mDevice1, null);
-        Assert.assertEquals(null, image);
+        File file = mAvrcpCoverArtStorage.getImageFile(mDevice1, null);
+        Assert.assertEquals(null, file);
     }
 
     @Test
     public void getImageEmptyHandle_returnsNull() {
         Assert.assertFalse(mAvrcpCoverArtStorage.doesImageExist(mDevice1, mHandle1));
-        Bitmap image = mAvrcpCoverArtStorage.getImage(mDevice1, "");
-        Assert.assertEquals(null, image);
+        File file = mAvrcpCoverArtStorage.getImageFile(mDevice1, "");
+        Assert.assertEquals(null, file);
     }
 
     @Test

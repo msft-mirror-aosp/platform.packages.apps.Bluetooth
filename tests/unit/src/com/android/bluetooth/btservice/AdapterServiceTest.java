@@ -16,8 +16,6 @@
 
 package com.android.bluetooth.btservice;
 
-import static android.Manifest.permission.BLUETOOTH_SCAN;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -26,24 +24,17 @@ import android.app.admin.DevicePolicyManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.IBluetoothCallback;
-import android.content.AttributionSource;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.PermissionInfo;
 import android.content.res.Resources;
 import android.media.AudioManager;
-import android.os.AsyncTask;
 import android.os.Binder;
-import android.os.Bundle;
-import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.Process;
 import android.os.SystemProperties;
-import android.os.UserHandle;
 import android.os.UserManager;
-import android.permission.PermissionCheckerManager;
 import android.test.mock.MockContentResolver;
 import android.util.Log;
 
@@ -98,17 +89,12 @@ public class AdapterServiceTest {
     private @Mock android.app.Application mApplication;
 
     private static final int CONTEXT_SWITCH_MS = 100;
-    private static final int PROFILE_SERVICE_TOGGLE_TIME_MS = 200;
     private static final int GATT_START_TIME_MS = 500;
     private static final int ONE_SECOND_MS = 1000;
     private static final int NATIVE_INIT_MS = 8000;
     private static final int NATIVE_DISABLE_MS = 1000;
 
-    private final AttributionSource mAttributionSource = new AttributionSource.Builder(
-            Process.myUid()).build();
-
     private PowerManager mPowerManager;
-    private PermissionCheckerManager mPermissionCheckerManager;
     private PackageManager mMockPackageManager;
     private MockContentResolver mMockContentResolver;
     private HashMap<String, HashMap<String, String>> mAdapterConfig;
@@ -121,8 +107,8 @@ public class AdapterServiceTest {
         }
         Assert.assertNotNull(Looper.myLooper());
         AdapterService adapterService = new AdapterService();
-        adapterService.initNative(false /* is_restricted */, false /* is_common_criteria_mode */,
-                0 /* config_compare_result */, new String[0], false);
+        adapterService.initNative(false /* is_restricted */, false /* is_niap_mode */,
+                0 /* config_compare_result */, false);
         adapterService.cleanupNative();
         HashMap<String, HashMap<String, String>> adapterConfig = TestUtils.readAdapterConfig();
         Assert.assertNotNull(adapterConfig);
@@ -137,31 +123,18 @@ public class AdapterServiceTest {
         }
         Assert.assertNotNull(Looper.myLooper());
 
-        // Dispatch all async work through instrumentation so we can wait until
-        // it's drained below
-        AsyncTask.setDefaultExecutor((r) -> {
-            InstrumentationRegistry.getInstrumentation().runOnMainSync(r);
-        });
-
         InstrumentationRegistry.getInstrumentation().runOnMainSync(
                 () -> mAdapterService = new AdapterService());
         mServiceBinder = new AdapterService.AdapterServiceBinder(mAdapterService);
         mMockPackageManager = mock(PackageManager.class);
-        when(mMockPackageManager.getPermissionInfo(any(), anyInt()))
-                .thenReturn(new PermissionInfo());
-
         mMockContentResolver = new MockContentResolver(mMockContext);
         MockitoAnnotations.initMocks(this);
         mPowerManager = (PowerManager) InstrumentationRegistry.getTargetContext()
                 .getSystemService(Context.POWER_SERVICE);
-        mPermissionCheckerManager = InstrumentationRegistry.getTargetContext()
-                .getSystemService(PermissionCheckerManager.class);
 
         when(mMockContext.getApplicationInfo()).thenReturn(mMockApplicationInfo);
         when(mMockContext.getContentResolver()).thenReturn(mMockContentResolver);
         when(mMockContext.getApplicationContext()).thenReturn(mMockContext);
-        when(mMockContext.createContextAsUser(UserHandle.SYSTEM, /* flags= */ 0)).thenReturn(
-                mMockContext);
         when(mMockContext.getResources()).thenReturn(mMockResources);
         when(mMockContext.getUserId()).thenReturn(Process.BLUETOOTH_UID);
         when(mMockContext.getPackageManager()).thenReturn(mMockPackageManager);
@@ -169,13 +142,8 @@ public class AdapterServiceTest {
         when(mMockContext.getSystemService(Context.DEVICE_POLICY_SERVICE)).thenReturn(
                 mMockDevicePolicyManager);
         when(mMockContext.getSystemService(Context.POWER_SERVICE)).thenReturn(mPowerManager);
-        when(mMockContext.getSystemServiceName(PermissionCheckerManager.class))
-                .thenReturn(Context.PERMISSION_CHECKER_SERVICE);
-        when(mMockContext.getSystemService(PermissionCheckerManager.class))
-                .thenReturn(mPermissionCheckerManager);
         when(mMockContext.getSystemService(Context.ALARM_SERVICE)).thenReturn(mMockAlarmManager);
         when(mMockContext.getSystemService(Context.AUDIO_SERVICE)).thenReturn(mAudioManager);
-        when(mMockContext.getAttributionSource()).thenReturn(mAttributionSource);
         doAnswer(invocation -> {
             Object[] args = invocation.getArguments();
             return InstrumentationRegistry.getTargetContext().getDatabasePath((String) args[0]);
@@ -198,12 +166,9 @@ public class AdapterServiceTest {
 
         // Attach a context to the service for permission checks.
         mAdapterService.attach(mMockContext, null, null, null, mApplication, null);
+
         mAdapterService.onCreate();
-
-        // Wait for any async events to drain
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-
-        mServiceBinder.registerCallback(mIBluetoothCallback, mAttributionSource);
+        mServiceBinder.registerCallback(mIBluetoothCallback);
 
         Config.init(mMockContext);
 
@@ -213,7 +178,7 @@ public class AdapterServiceTest {
 
     @After
     public void tearDown() {
-        mServiceBinder.unregisterCallback(mIBluetoothCallback, mAttributionSource);
+        mServiceBinder.unregisterCallback(mIBluetoothCallback);
         mAdapterService.cleanup();
         Config.init(InstrumentationRegistry.getTargetContext());
     }
@@ -246,7 +211,7 @@ public class AdapterServiceTest {
         verifyStateChange(BluetoothAdapter.STATE_BLE_TURNING_ON, BluetoothAdapter.STATE_BLE_ON,
                 invocationNumber + 1, NATIVE_INIT_MS);
 
-        mServiceBinder.onLeServiceUp(mAttributionSource);
+        mServiceBinder.onLeServiceUp();
 
         verifyStateChange(BluetoothAdapter.STATE_BLE_ON, BluetoothAdapter.STATE_TURNING_ON,
                 invocationNumber + 1, CONTEXT_SWITCH_MS);
@@ -262,12 +227,11 @@ public class AdapterServiceTest {
         }
 
         verifyStateChange(BluetoothAdapter.STATE_TURNING_ON, BluetoothAdapter.STATE_ON,
-                invocationNumber + 1, PROFILE_SERVICE_TOGGLE_TIME_MS);
+                invocationNumber + 1, CONTEXT_SWITCH_MS);
 
         verify(mMockContext, timeout(CONTEXT_SWITCH_MS).times(2 * invocationNumber + 2))
-                .sendBroadcast(any(), eq(BLUETOOTH_SCAN),
-                        any(Bundle.class));
-        final int scanMode = mServiceBinder.getScanMode(mAttributionSource);
+                .sendBroadcast(any(), eq(android.Manifest.permission.BLUETOOTH));
+        final int scanMode = mServiceBinder.getScanMode();
         Assert.assertTrue(scanMode == BluetoothAdapter.SCAN_MODE_CONNECTABLE
                 || scanMode == BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE);
         Assert.assertTrue(mAdapterService.getState() == BluetoothAdapter.STATE_ON);
@@ -292,9 +256,9 @@ public class AdapterServiceTest {
         }
 
         verifyStateChange(BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_BLE_ON,
-                invocationNumber + 1, PROFILE_SERVICE_TOGGLE_TIME_MS);
+                invocationNumber + 1, CONTEXT_SWITCH_MS);
 
-        mServiceBinder.onBrEdrDown(mAttributionSource);
+        mServiceBinder.onBrEdrDown();
 
         verifyStateChange(BluetoothAdapter.STATE_BLE_ON, BluetoothAdapter.STATE_BLE_TURNING_OFF,
                 invocationNumber + 1, CONTEXT_SWITCH_MS);
@@ -408,7 +372,7 @@ public class AdapterServiceTest {
         verifyStateChange(BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_BLE_ON, 1,
                 CONTEXT_SWITCH_MS);
 
-        mServiceBinder.onBrEdrDown(mAttributionSource);
+        mServiceBinder.onBrEdrDown();
 
         verifyStateChange(BluetoothAdapter.STATE_BLE_ON, BluetoothAdapter.STATE_BLE_TURNING_OFF, 1,
                 CONTEXT_SWITCH_MS);
@@ -443,7 +407,7 @@ public class AdapterServiceTest {
         verifyStateChange(BluetoothAdapter.STATE_BLE_TURNING_ON, BluetoothAdapter.STATE_BLE_ON, 1,
                 NATIVE_INIT_MS);
 
-        mServiceBinder.onLeServiceUp(mAttributionSource);
+        mServiceBinder.onLeServiceUp();
 
         verifyStateChange(BluetoothAdapter.STATE_BLE_ON, BluetoothAdapter.STATE_TURNING_ON, 1,
                 CONTEXT_SWITCH_MS);
@@ -675,7 +639,7 @@ public class AdapterServiceTest {
         byte[] obfuscatedAddress1 = mAdapterService.obfuscateAddress(device);
         Assert.assertTrue(obfuscatedAddress1.length > 0);
         Assert.assertFalse(isByteArrayAllZero(obfuscatedAddress1));
-        mServiceBinder.factoryReset(mAttributionSource);
+        mServiceBinder.factoryReset();
         byte[] obfuscatedAddress2 = mAdapterService.obfuscateAddress(device);
         Assert.assertTrue(obfuscatedAddress2.length > 0);
         Assert.assertFalse(isByteArrayAllZero(obfuscatedAddress2));
@@ -687,7 +651,7 @@ public class AdapterServiceTest {
         Assert.assertFalse(isByteArrayAllZero(obfuscatedAddress3));
         Assert.assertArrayEquals(obfuscatedAddress3,
                 obfuscatedAddress2);
-        mServiceBinder.factoryReset(mAttributionSource);
+        mServiceBinder.factoryReset();
         byte[] obfuscatedAddress4 = mAdapterService.obfuscateAddress(device);
         Assert.assertTrue(obfuscatedAddress4.length > 0);
         Assert.assertFalse(isByteArrayAllZero(obfuscatedAddress4));
@@ -711,7 +675,7 @@ public class AdapterServiceTest {
         Assert.assertFalse(isByteArrayAllZero(obfuscatedAddress1));
         Assert.assertArrayEquals(obfuscateInJava(metricsSalt1, device),
                 obfuscatedAddress1);
-        mServiceBinder.factoryReset(mAttributionSource);
+        mServiceBinder.factoryReset();
         tearDown();
         setUp();
         // Cannot verify metrics salt since it is not written to disk until native cleanup

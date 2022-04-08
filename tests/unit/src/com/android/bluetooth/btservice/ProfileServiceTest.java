@@ -29,7 +29,6 @@ import androidx.test.rule.ServiceTestRule;
 import androidx.test.runner.AndroidJUnit4;
 
 import com.android.bluetooth.TestUtils;
-import com.android.bluetooth.btservice.storage.DatabaseManager;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -40,12 +39,9 @@ import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 
 @MediumTest
@@ -55,18 +51,8 @@ public class ProfileServiceTest {
     private static final int NUM_REPEATS = 5;
 
     @Rule public final ServiceTestRule mServiceTestRule = new ServiceTestRule();
-    @Mock private AdapterService mMockAdapterService;
-    @Mock private DatabaseManager mDatabaseManager;
-
-    private Class[] mProfiles;
-    ConcurrentHashMap<String, Boolean> mStartedProfileMap = new ConcurrentHashMap();
 
     private void setProfileState(Class profile, int state) throws TimeoutException {
-        if (state == BluetoothAdapter.STATE_ON) {
-            mStartedProfileMap.put(profile.getSimpleName(), true);
-        } else if (state == BluetoothAdapter.STATE_OFF) {
-            mStartedProfileMap.put(profile.getSimpleName(), false);
-        }
         Intent startIntent = new Intent(InstrumentationRegistry.getTargetContext(), profile);
         startIntent.putExtra(AdapterService.EXTRA_ACTION,
                 AdapterService.ACTION_SERVICE_STATE_CHANGED);
@@ -94,6 +80,10 @@ public class ProfileServiceTest {
         }
     }
 
+    private @Mock AdapterService mMockAdapterService;
+
+    private Class[] mProfiles;
+
     @Before
     public void setUp()
             throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
@@ -103,22 +93,13 @@ public class ProfileServiceTest {
         Assert.assertNotNull(Looper.myLooper());
 
         MockitoAnnotations.initMocks(this);
-        when(mMockAdapterService.isStartedProfile(anyString())).thenAnswer(new Answer<Boolean>() {
-            @Override
-            public Boolean answer(InvocationOnMock invocation) throws Throwable {
-                Object[] args = invocation.getArguments();
-                return mStartedProfileMap.get((String) args[0]);
-            }
-        });
 
         mProfiles = Config.getSupportedProfiles();
 
-        mMockAdapterService.initNative(false /* is_restricted */,
-                false /* is_common_criteria_mode */, 0 /* config_compare_result */,
-                new String[0], false);
+        mMockAdapterService.initNative(false /* is_restricted */, false /* is_niap_mode */,
+                0 /* config_compare_result */, false);
 
         TestUtils.setAdapterService(mMockAdapterService);
-        doReturn(mDatabaseManager).when(mMockAdapterService).getDatabase();
 
         Assert.assertNotNull(AdapterService.getAdapterService());
     }

@@ -21,7 +21,6 @@
  */
 package com.android.bluetooth.a2dp;
 
-import android.annotation.RequiresPermission;
 import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothCodecConfig;

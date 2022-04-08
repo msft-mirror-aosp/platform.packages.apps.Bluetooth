@@ -17,7 +17,9 @@
 package com.android.bluetooth.btservice.bluetoothkeystore;
 
 import android.annotation.Nullable;
+import android.os.Process;
 import android.os.SystemProperties;
+import android.security.keystore.AndroidKeyStoreProvider;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Log;
@@ -41,7 +43,6 @@ import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.ProviderException;
 import java.security.UnrecoverableEntryException;
-import java.security.cert.CertificateException;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -69,7 +70,7 @@ public class BluetoothKeystoreService {
 
     private static BluetoothKeystoreService sBluetoothKeystoreService;
     private boolean mCleaningUp;
-    private boolean mIsCommonCriteriaMode;
+    private boolean mIsNiapMode;
 
     private static final String CIPHER_ALGORITHM = "AES/GCM/NoPadding";
     private static final int GCM_TAG_LENGTH = 128;
@@ -118,9 +119,9 @@ public class BluetoothKeystoreService {
     private Base64.Decoder mDecoder = Base64.getDecoder();
     private Base64.Encoder mEncoder = Base64.getEncoder();
 
-    public BluetoothKeystoreService(boolean isCommonCriteriaMode) {
-        debugLog("new BluetoothKeystoreService isCommonCriteriaMode: " + isCommonCriteriaMode);
-        mIsCommonCriteriaMode = isCommonCriteriaMode;
+    public BluetoothKeystoreService(boolean isNiapMode) {
+        debugLog("new BluetoothKeystoreService isNiapMode: " + isNiapMode);
+        mIsNiapMode = isNiapMode;
         mCompareResult = CONFIG_COMPARE_INIT;
         startThread();
     }
@@ -139,7 +140,7 @@ public class BluetoothKeystoreService {
 
         keyStore = getKeyStore();
 
-        // Confirm whether to enable Common Criteria mode for the first time.
+        // Confirm whether to enable NIAP for the first time.
         if (keyStore == null) {
             debugLog("cannot find the keystore.");
             return;
@@ -153,8 +154,8 @@ public class BluetoothKeystoreService {
         setBluetoothKeystoreService(this);
 
         try {
-            if (!keyStore.containsAlias(KEYALIAS) && mIsCommonCriteriaMode) {
-                infoLog("Enable Common Criteria mode for the first time, pass hash check.");
+            if (!keyStore.containsAlias(KEYALIAS) && mIsNiapMode) {
+                infoLog("Enable NIAP mode for the first time, pass hash check.");
                 mCompareResult = 0b11;
                 return;
             }
@@ -200,20 +201,19 @@ public class BluetoothKeystoreService {
         mBluetoothKeystoreNativeInterface.cleanup();
         mBluetoothKeystoreNativeInterface = null;
 
-        if (mIsCommonCriteriaMode) {
-            cleanupForCommonCriteriaModeEnable();
+        if (mIsNiapMode) {
+            cleanupForNiapModeEnable();
         } else {
-            cleanupForCommonCriteriaModeDisable();
+            cleanupForNiapModeDisable();
         }
     }
 
     /**
-     * Clean up if Common Criteria mode is enabled.
+     * Clean up if NIAP mode is enabled.
      */
     @VisibleForTesting
-    public void cleanupForCommonCriteriaModeEnable() {
+    public void cleanupForNiapModeEnable() {
         try {
-            Thread.sleep(100);
             setEncryptKeyOrRemoveKey(CONFIG_FILE_PREFIX, CONFIG_FILE_HASH);
         } catch (InterruptedException e) {
             reportBluetoothKeystoreException(e, "Interrupted while operating.");
@@ -227,10 +227,10 @@ public class BluetoothKeystoreService {
     }
 
     /**
-     * Clean up if Common Criteria mode is disabled.
+     * Clean up if NIAP mode is disabled.
      */
     @VisibleForTesting
-    public void cleanupForCommonCriteriaModeDisable() {
+    public void cleanupForNiapModeDisable() {
         mNameDecryptKey.clear();
         mNameEncryptKey.clear();
     }
@@ -268,16 +268,16 @@ public class BluetoothKeystoreService {
                     mNameEncryptKey.remove(CONFIG_FILE_PREFIX);
                     loadEncryptionFile(CONFIG_BACKUP_ENCRYPTION_PATH, true);
                 } else {
-                    // if the Common Criteria mode is disable, don't show the log.
-                    if (mIsCommonCriteriaMode) {
+                    // if the NIAP mode is disable, don't show the log.
+                    if (mIsNiapMode) {
                         debugLog("Config file conf and bak checksum check fail.");
                     }
                     cleanupAll();
                     return;
                 }
             }
-            // keep memory data for get decrypted key if Common Criteria mode disable.
-            if (!mIsCommonCriteriaMode) {
+            // keep memory data for get decrypted key if NIAP mode disable.
+            if (!mIsNiapMode) {
                 stopThread();
                 cleanupFile();
             }
@@ -299,13 +299,8 @@ public class BluetoothKeystoreService {
      */
     public void initJni() {
         debugLog("initJni()");
-        // Need to make sure all keys are decrypted.
-        stopThread();
-        startThread();
         // Initialize native interface
-        if (mBluetoothKeystoreNativeInterface != null) {
-            mBluetoothKeystoreNativeInterface.init();
-        }
+        mBluetoothKeystoreNativeInterface.init();
     }
 
     private boolean isAvailable() {
@@ -526,7 +521,7 @@ public class BluetoothKeystoreService {
      */
     @VisibleForTesting
     public boolean compareFileHash(String hashFilePathString)
-            throws InterruptedException, IOException, NoSuchAlgorithmException {
+            throws IOException, NoSuchAlgorithmException {
         if (!Files.exists(Paths.get(hashFilePathString))) {
             infoLog("compareFileHash: File does not exist, path: " + hashFilePathString);
             return false;
@@ -561,37 +556,25 @@ public class BluetoothKeystoreService {
     }
 
     private void readHashFile(String filePathString, String prefixString)
-            throws InterruptedException, NoSuchAlgorithmException {
+            throws IOException, NoSuchAlgorithmException {
         byte[] dataBuffer = new byte[BUFFER_SIZE];
         int bytesRead  = 0;
-        boolean successful = false;
-        int counter = 0;
-        while (!successful && counter < TRY_MAX) {
-            try {
-                MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
-                InputStream fileStream = Files.newInputStream(Paths.get(filePathString));
-                while ((bytesRead = fileStream.read(dataBuffer)) != -1) {
-                    messageDigest.update(dataBuffer, 0, bytesRead);
-                }
 
-                byte[] messageDigestBytes = messageDigest.digest();
-                StringBuffer hashString = new StringBuffer();
-                for (int index = 0; index < messageDigestBytes.length; index++) {
-                    hashString.append(Integer.toString((
-                            messageDigestBytes[index] & 0xff) + 0x100, 16).substring(1));
-                }
+        MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
+        InputStream fileStream = Files.newInputStream(Paths.get(filePathString));
 
-                mNameDecryptKey.put(prefixString, hashString.toString());
-                successful = true;
-            } catch (IOException e) {
-                infoLog("Fail to open file, try again. counter: " + counter);
-                Thread.sleep(50);
-                counter++;
-            }
+        while ((bytesRead = fileStream.read(dataBuffer)) != -1) {
+            messageDigest.update(dataBuffer, 0, bytesRead);
         }
-        if (counter > 3) {
-            errorLog("Fail to open file");
+
+        byte[] messageDigestBytes = messageDigest.digest();
+        StringBuffer hashString = new StringBuffer();
+        for (int index = 0; index < messageDigestBytes.length; index++) {
+            hashString.append(Integer.toString((
+                    messageDigestBytes[index] & 0xff) + 0x100, 16).substring(1));
         }
+
+        mNameDecryptKey.put(prefixString, hashString.toString());
     }
 
     private void readChecksumFile(String filePathString, String prefixString) throws IOException {
@@ -803,19 +786,18 @@ public class BluetoothKeystoreService {
 
         while ((counter <= TRY_MAX) && (keyStore == null)) {
             try {
-                keyStore = KeyStore.getInstance("AndroidKeyStore");
-                keyStore.load(null);
-            } catch (KeyStoreException | CertificateException | NoSuchAlgorithmException
-                    | IOException e) {
-                reportKeystoreException(e, "cannot open keystore");
+                keyStore = AndroidKeyStoreProvider.getKeyStoreForUid(Process.BLUETOOTH_UID);
+            } catch (NoSuchProviderException e) {
+                reportKeystoreException(e, "cannot find crypto provider");
+            } catch (KeyStoreException e) {
+                reportKeystoreException(e, "cannot find the keystore");
             }
             counter++;
         }
         return keyStore;
     }
 
-    // The getOrGenerate semantic on keystore is not thread safe, need to synchronized it.
-    private synchronized SecretKey getOrCreateSecretKey() {
+    private SecretKey getOrCreateSecretKey() {
         SecretKey secretKey = null;
         try {
             KeyStore keyStore = getKeyStore();
@@ -838,6 +820,7 @@ public class BluetoothKeystoreService {
                         .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                         .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                         .setKeySize(KEY_LENGTH)
+                        .setUid(Process.BLUETOOTH_UID)
                         .build();
 
                 keyGenerator.init(keyGenParameterSpec);

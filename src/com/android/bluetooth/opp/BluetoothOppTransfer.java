@@ -32,14 +32,12 @@
 
 package com.android.bluetooth.opp;
 
-import android.app.ActivityThread;
 import android.app.NotificationManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.bluetooth.BluetoothUuid;
 import android.bluetooth.SdpOppOpsRecord;
-import android.content.Attributable;
 import android.content.BroadcastReceiver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -55,7 +53,6 @@ import android.os.Process;
 import android.util.Log;
 
 import com.android.bluetooth.BluetoothObexTransport;
-import com.android.bluetooth.Utils;
 
 import java.io.IOException;
 
@@ -207,10 +204,7 @@ public class BluetoothOppTransfer implements BluetoothOppBatch.BluetoothOppBatch
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case SOCKET_ERROR_RETRY:
-                    BluetoothDevice device = (BluetoothDevice) msg.obj;
-                    Attributable.setAttributionSource(device,
-                            ActivityThread.currentAttributionSource());
-                    mConnectThread = new SocketConnectThread(device, true);
+                    mConnectThread = new SocketConnectThread((BluetoothDevice) msg.obj, true);
 
                     mConnectThread.start();
                     break;
@@ -744,8 +738,7 @@ public class BluetoothOppTransfer implements BluetoothOppBatch.BluetoothOppBatch
                 BluetoothObexTransport transport;
                 transport = new BluetoothObexTransport(mBtSocket);
 
-                BluetoothOppPreference.getInstance(mContext).setName(mDevice,
-                        Utils.getName(mDevice));
+                BluetoothOppPreference.getInstance(mContext).setName(mDevice, mDevice.getName());
 
                 if (V) {
                     Log.v(TAG, "Send transport message " + transport.toString());
@@ -811,8 +804,7 @@ public class BluetoothOppTransfer implements BluetoothOppBatch.BluetoothOppBatch
                 }
                 BluetoothObexTransport transport;
                 transport = new BluetoothObexTransport(mBtSocket);
-                BluetoothOppPreference.getInstance(mContext).setName(mDevice,
-                        Utils.getName(mDevice));
+                BluetoothOppPreference.getInstance(mContext).setName(mDevice, mDevice.getName());
                 if (V) {
                     Log.v(TAG, "Send transport message " + transport.toString());
                 }

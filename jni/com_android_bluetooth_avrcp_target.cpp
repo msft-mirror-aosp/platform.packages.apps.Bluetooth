@@ -172,10 +172,10 @@ static jmethodID method_setVolume;
 
 static void classInitNative(JNIEnv* env, jclass clazz) {
   method_getCurrentSongInfo = env->GetMethodID(
-      clazz, "getCurrentSongInfo", "()Lcom/android/bluetooth/audio_util/Metadata;");
+      clazz, "getCurrentSongInfo", "()Lcom/android/bluetooth/avrcp/Metadata;");
 
   method_getPlaybackStatus = env->GetMethodID(
-      clazz, "getPlayStatus", "()Lcom/android/bluetooth/audio_util/PlayStatus;");
+      clazz, "getPlayStatus", "()Lcom/android/bluetooth/avrcp/PlayStatus;");
 
   method_sendMediaKeyEvent =
       env->GetMethodID(clazz, "sendMediaKeyEvent", "(IZ)V");
@@ -223,27 +223,6 @@ static void initNative(JNIEnv* env, jobject object) {
 
   sServiceInterface = getBluetoothInterface()->get_avrcp_service();
   sServiceInterface->Init(&mAvrcpInterface, &mVolumeInterface);
-}
-
-static void registerBipServerNative(JNIEnv* env, jobject object,
-                                    jint l2cap_psm) {
-  ALOGD("%s: l2cap_psm=%d", __func__, (int)l2cap_psm);
-  std::unique_lock<std::shared_timed_mutex> interface_lock(interface_mutex);
-  if (sServiceInterface == nullptr) {
-    ALOGW("%s: Service not loaded.", __func__);
-    return;
-  }
-  sServiceInterface->RegisterBipServer((int)l2cap_psm);
-}
-
-static void unregisterBipServerNative(JNIEnv* env, jobject object) {
-  ALOGD("%s", __func__);
-  std::unique_lock<std::shared_timed_mutex> interface_lock(interface_mutex);
-  if (sServiceInterface == nullptr) {
-    ALOGW("%s: Service not loaded.", __func__);
-    return;
-  }
-  sServiceInterface->UnregisterBipServer();
 }
 
 static void sendMediaUpdateNative(JNIEnv* env, jobject object,
@@ -337,27 +316,6 @@ static void sendMediaKeyEvent(int key, KeyState state) {
       state == KeyState::PUSHED ? JNI_TRUE : JNI_FALSE);
 }
 
-static std::string getImageHandleFromJavaObj(JNIEnv* env, jobject image) {
-  std::string handle;
-
-  if (image == nullptr) return handle;
-
-  jclass class_image = env->GetObjectClass(image);
-  jmethodID method_getImageHandle =
-      env->GetMethodID(class_image, "getImageHandle", "()Ljava/lang/String;");
-  jstring imageHandle = (jstring) env->CallObjectMethod(
-      image, method_getImageHandle);
-  if (imageHandle == nullptr) {
-    return handle;
-  }
-
-  const char* value = env->GetStringUTFChars(imageHandle, nullptr);
-  handle = std::string(value);
-  env->ReleaseStringUTFChars(imageHandle, value);
-  env->DeleteLocalRef(imageHandle);
-  return handle;
-}
-
 static SongInfo getSongInfoFromJavaObj(JNIEnv* env, jobject metadata) {
   SongInfo info;
 
@@ -380,8 +338,6 @@ static SongInfo getSongInfoFromJavaObj(JNIEnv* env, jobject metadata) {
       env->GetFieldID(class_metadata, "genre", "Ljava/lang/String;");
   jfieldID field_playingTime =
       env->GetFieldID(class_metadata, "duration", "Ljava/lang/String;");
-  jfieldID field_image =
-      env->GetFieldID(class_metadata, "image", "Lcom/android/bluetooth/audio_util/Image;");
 
   jstring jstr = (jstring)env->GetObjectField(metadata, field_mediaId);
   if (jstr != nullptr) {
@@ -454,16 +410,6 @@ static SongInfo getSongInfoFromJavaObj(JNIEnv* env, jobject metadata) {
     env->DeleteLocalRef(jstr);
   }
 
-  jobject object_image = env->GetObjectField(metadata, field_image);
-  if (object_image != nullptr) {
-    std::string imageHandle = getImageHandleFromJavaObj(env, object_image);
-    if (!imageHandle.empty()) {
-      info.attributes.insert(
-          AttributeEntry(Attribute::DEFAULT_COVER_ART, imageHandle));
-    }
-    env->DeleteLocalRef(object_image);
-  }
-
   return info;
 }
 
@@ -482,7 +428,6 @@ static FolderInfo getFolderInfoFromJavaObj(JNIEnv* env, jobject folder) {
     const char* value = env->GetStringUTFChars(jstr, nullptr);
     info.media_id = std::string(value);
     env->ReleaseStringUTFChars(jstr, value);
-    env->DeleteLocalRef(jstr);
   }
 
   info.is_playable = env->GetBooleanField(folder, field_isPlayable) == JNI_TRUE;
@@ -492,7 +437,6 @@ static FolderInfo getFolderInfoFromJavaObj(JNIEnv* env, jobject folder) {
     const char* value = env->GetStringUTFChars(jstr, nullptr);
     info.name = std::string(value);
     env->ReleaseStringUTFChars(jstr, value);
-    env->DeleteLocalRef(jstr);
   }
 
   return info;
@@ -506,9 +450,7 @@ static SongInfo getSongInfo() {
 
   jobject metadata =
       sCallbackEnv->CallObjectMethod(mJavaInterface, method_getCurrentSongInfo);
-  SongInfo info = getSongInfoFromJavaObj(sCallbackEnv.get(), metadata);
-  sCallbackEnv->DeleteLocalRef(metadata);
-  return info;
+  return getSongInfoFromJavaObj(sCallbackEnv.get(), metadata);
 }
 
 static PlayStatus getCurrentPlayStatus() {
@@ -538,8 +480,6 @@ static PlayStatus getCurrentPlayStatus() {
   status.duration = sCallbackEnv->GetLongField(playStatus, field_duration);
   status.state = (PlayState)sCallbackEnv->GetByteField(playStatus, field_state);
 
-  sCallbackEnv->DeleteLocalRef(playStatus);
-
   return status;
 }
 
@@ -559,7 +499,6 @@ static std::string getCurrentMediaId() {
   const char* value = sCallbackEnv->GetStringUTFChars(media_id, nullptr);
   std::string ret(value);
   sCallbackEnv->ReleaseStringUTFChars(media_id, value);
-  sCallbackEnv->DeleteLocalRef(media_id);
   return ret;
 }
 
@@ -582,18 +521,13 @@ static std::vector<SongInfo> getNowPlayingList() {
   jmethodID method_size = sCallbackEnv->GetMethodID(class_list, "size", "()I");
 
   auto size = sCallbackEnv->CallIntMethod(song_list, method_size);
-  if (size == 0) {
-    sCallbackEnv->DeleteLocalRef(song_list);
-    return std::vector<SongInfo>();
-  }
+  if (size == 0) return std::vector<SongInfo>();
   std::vector<SongInfo> ret;
   for (int i = 0; i < size; i++) {
     jobject song = sCallbackEnv->CallObjectMethod(song_list, method_get, i);
     ret.push_back(getSongInfoFromJavaObj(sCallbackEnv.get(), song));
     sCallbackEnv->DeleteLocalRef(song);
   }
-
-  sCallbackEnv->DeleteLocalRef(song_list);
 
   return ret;
 }
@@ -632,13 +566,11 @@ static std::vector<MediaPlayerInfo> getMediaPlayerList() {
 
   jint list_size = sCallbackEnv->CallIntMethod(player_list, method_size);
   if (list_size == 0) {
-    sCallbackEnv->DeleteLocalRef(player_list);
     return std::vector<MediaPlayerInfo>();
   }
 
-  jobject player_info =
-      sCallbackEnv->CallObjectMethod(player_list, method_get, 0);
-  jclass class_playerInfo = sCallbackEnv->GetObjectClass(player_info);
+  jclass class_playerInfo = sCallbackEnv->GetObjectClass(
+      sCallbackEnv->CallObjectMethod(player_list, method_get, 0));
   jfieldID field_playerId =
       sCallbackEnv->GetFieldID(class_playerInfo, "id", "I");
   jfieldID field_name =
@@ -669,9 +601,6 @@ static std::vector<MediaPlayerInfo> getMediaPlayerList() {
     ret_list.push_back(std::move(temp));
     sCallbackEnv->DeleteLocalRef(player);
   }
-
-  sCallbackEnv->DeleteLocalRef(player_info);
-  sCallbackEnv->DeleteLocalRef(player_list);
 
   return ret_list;
 }
@@ -743,13 +672,13 @@ static void getFolderItemsResponseNative(JNIEnv* env, jobject object,
     return;
   }
 
-  jobject list_item = env->CallObjectMethod(list, method_get, 0);
-  jclass class_listItem = env->GetObjectClass(list_item);
+  jclass class_listItem =
+      env->GetObjectClass(env->CallObjectMethod(list, method_get, 0));
   jfieldID field_isFolder = env->GetFieldID(class_listItem, "isFolder", "Z");
   jfieldID field_folder = env->GetFieldID(
-      class_listItem, "folder", "Lcom/android/bluetooth/audio_util/Folder;");
+      class_listItem, "folder", "Lcom/android/bluetooth/avrcp/Folder;");
   jfieldID field_song = env->GetFieldID(
-      class_listItem, "song", "Lcom/android/bluetooth/audio_util/Metadata;");
+      class_listItem, "song", "Lcom/android/bluetooth/avrcp/Metadata;");
 
   std::vector<ListItem> ret_list;
   for (jsize i = 0; i < list_size; i++) {
@@ -758,23 +687,21 @@ static void getFolderItemsResponseNative(JNIEnv* env, jobject object,
     bool is_folder = env->GetBooleanField(item, field_isFolder) == JNI_TRUE;
 
     if (is_folder) {
-      jobject folder = env->GetObjectField(item, field_folder);
       ListItem temp = {ListItem::FOLDER,
-                       getFolderInfoFromJavaObj(env, folder),
+                       getFolderInfoFromJavaObj(
+                           env, env->GetObjectField(item, field_folder)),
                        SongInfo()};
+
       ret_list.push_back(temp);
-      env->DeleteLocalRef(folder);
     } else {
-      jobject song = env->GetObjectField(item, field_song);
-      ListItem temp = {ListItem::SONG, FolderInfo(),
-                       getSongInfoFromJavaObj(env, song)};
+      ListItem temp = {
+          ListItem::SONG, FolderInfo(),
+          getSongInfoFromJavaObj(env, env->GetObjectField(item, field_song))};
+
       ret_list.push_back(temp);
-      env->DeleteLocalRef(song);
     }
     env->DeleteLocalRef(item);
   }
-
-  env->DeleteLocalRef(list_item);
 
   callback.Run(std::move(ret_list));
 }
@@ -881,30 +808,9 @@ static void setVolume(int8_t volume) {
   sCallbackEnv->CallVoidMethod(mJavaInterface, method_setVolume, volume);
 }
 
-static void setBipClientStatusNative(JNIEnv* env, jobject object,
-                                    jstring address, jboolean connected) {
-  std::unique_lock<std::shared_timed_mutex> interface_lock(interface_mutex);
-  if (mServiceCallbacks == nullptr) {
-    ALOGW("%s: Service not loaded.", __func__);
-    return;
-  }
-
-  const char* tmp_addr = env->GetStringUTFChars(address, 0);
-  RawAddress bdaddr;
-  bool success = RawAddress::FromString(tmp_addr, bdaddr);
-  env->ReleaseStringUTFChars(address, tmp_addr);
-
-  if (!success) return;
-
-  bool status = (connected == JNI_TRUE);
-  sServiceInterface->SetBipClientStatus(bdaddr, status);
-}
-
 static JNINativeMethod sMethods[] = {
     {"classInitNative", "()V", (void*)classInitNative},
     {"initNative", "()V", (void*)initNative},
-    {"registerBipServerNative", "(I)V", (void*)registerBipServerNative},
-    {"unregisterBipServerNative", "()V", (void*)unregisterBipServerNative},
     {"sendMediaUpdateNative", "(ZZZ)V", (void*)sendMediaUpdateNative},
     {"sendFolderUpdateNative", "(ZZZ)V", (void*)sendFolderUpdateNative},
     {"setBrowsedPlayerResponseNative", "(IZLjava/lang/String;I)V",
@@ -918,8 +824,6 @@ static JNINativeMethod sMethods[] = {
      (void*)disconnectDeviceNative},
     {"sendVolumeChangedNative", "(Ljava/lang/String;I)V",
      (void*)sendVolumeChangedNative},
-    {"setBipClientStatusNative", "(Ljava/lang/String;Z)V",
-     (void*)setBipClientStatusNative},
 };
 
 int register_com_android_bluetooth_avrcp_target(JNIEnv* env) {

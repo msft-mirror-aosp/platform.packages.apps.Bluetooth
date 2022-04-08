@@ -16,8 +16,6 @@
 
 package com.android.bluetooth.hfp;
 
-import android.annotation.RequiresPermission;
-import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.os.Handler;
@@ -248,7 +246,6 @@ public class HeadsetPhoneState {
                 new HeadsetDeviceState(mCindService, mCindRoam, signal, mCindBatteryCharge));
     }
 
-    @SuppressLint("AndroidFrameworkRequiresPermission")
     private class HeadsetPhoneStateOnSubscriptionChangedListener
             extends OnSubscriptionsChangedListener {
         HeadsetPhoneStateOnSubscriptionChangedListener() {
@@ -271,7 +268,6 @@ public class HeadsetPhoneState {
         }
     }
 
-    @SuppressLint("AndroidFrameworkRequiresPermission")
     private class HeadsetPhoneStateListener extends PhoneStateListener {
         HeadsetPhoneStateListener(Executor executor) {
             super(executor);

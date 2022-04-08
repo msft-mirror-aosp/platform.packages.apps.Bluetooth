@@ -107,9 +107,6 @@ import java.util.UUID;
         /** Whether the calling app has the network setup wizard permission */
         boolean mHasScanWithoutLocationPermission;
 
-        /** Whether the calling app has disavowed the use of bluetooth for location */
-        boolean mHasDisavowedLocation;
-
         boolean mEligibleForSanitizedExposureNotification;
 
         public List<String> mAssociatedDevices;
@@ -175,10 +172,10 @@ import java.util.UUID;
     private List<App> mApps = new ArrayList<App>();
 
     /** Internal map to keep track of logging information by app name */
-    private HashMap<Integer, AppScanStats> mAppScanStats = new HashMap<Integer, AppScanStats>();
+    HashMap<Integer, AppScanStats> mAppScanStats = new HashMap<Integer, AppScanStats>();
 
     /** Internal list of connected devices **/
-    private Set<Connection> mConnections = new HashSet<Connection>();
+    Set<Connection> mConnections = new HashSet<Connection>();
 
     /**
      * Add an entry to the application context list.
@@ -225,22 +222,18 @@ import java.util.UUID;
      * Remove the context for a given application ID.
      */
     void remove(int id) {
-        boolean find = false;
         synchronized (mApps) {
             Iterator<App> i = mApps.iterator();
             while (i.hasNext()) {
                 App entry = i.next();
                 if (entry.id == id) {
-                    find = true;
+                    removeConnectionsByAppId(id);
                     entry.unlinkToDeath();
                     entry.appScanStats.isRegistered = false;
                     i.remove();
                     break;
                 }
             }
-        }
-        if (find) {
-            removeConnectionsByAppId(id);
         }
     }
 
@@ -288,13 +281,11 @@ import java.util.UUID;
      * Remove all connections for a given application ID.
      */
     void removeConnectionsByAppId(int appId) {
-        synchronized (mConnections) {
-            Iterator<Connection> i = mConnections.iterator();
-            while (i.hasNext()) {
-                Connection connection = i.next();
-                if (connection.appId == appId) {
-                    i.remove();
-                }
+        Iterator<Connection> i = mConnections.iterator();
+        while (i.hasNext()) {
+            Connection connection = i.next();
+            if (connection.appId == appId) {
+                i.remove();
             }
         }
     }
@@ -390,12 +381,10 @@ import java.util.UUID;
      */
     Set<String> getConnectedDevices() {
         Set<String> addresses = new HashSet<String>();
-        synchronized (mConnections) {
-            Iterator<Connection> i = mConnections.iterator();
-            while (i.hasNext()) {
-                Connection connection = i.next();
-                addresses.add(connection.address);
-            }
+        Iterator<Connection> i = mConnections.iterator();
+        while (i.hasNext()) {
+            Connection connection = i.next();
+            addresses.add(connection.address);
         }
         return addresses;
     }
@@ -404,19 +393,12 @@ import java.util.UUID;
      * Get an application context by a connection ID.
      */
     App getByConnId(int connId) {
-        int appId = -1;
-        synchronized (mConnections) {
-            Iterator<Connection> ii = mConnections.iterator();
-            while (ii.hasNext()) {
-                Connection connection = ii.next();
-                if (connection.connId == connId) {
-                    appId = connection.appId;
-                    break;
-                }
+        Iterator<Connection> ii = mConnections.iterator();
+        while (ii.hasNext()) {
+            Connection connection = ii.next();
+            if (connection.connId == connId) {
+                return getById(connection.appId);
             }
-        }
-        if (appId >= 0) {
-            return getById(appId);
         }
         return null;
     }
@@ -429,13 +411,12 @@ import java.util.UUID;
         if (entry == null) {
             return null;
         }
-        synchronized (mConnections) {
-            Iterator<Connection> i = mConnections.iterator();
-            while (i.hasNext()) {
-                Connection connection = i.next();
-                if (connection.address.equalsIgnoreCase(address) && connection.appId == id) {
-                    return connection.connId;
-                }
+
+        Iterator<Connection> i = mConnections.iterator();
+        while (i.hasNext()) {
+            Connection connection = i.next();
+            if (connection.address.equalsIgnoreCase(address) && connection.appId == id) {
+                return connection.connId;
             }
         }
         return null;
@@ -445,13 +426,11 @@ import java.util.UUID;
      * Returns the device address for a given connection ID.
      */
     String addressByConnId(int connId) {
-        synchronized (mConnections) {
-            Iterator<Connection> i = mConnections.iterator();
-            while (i.hasNext()) {
-                Connection connection = i.next();
-                if (connection.connId == connId) {
-                    return connection.address;
-                }
+        Iterator<Connection> i = mConnections.iterator();
+        while (i.hasNext()) {
+            Connection connection = i.next();
+            if (connection.connId == connId) {
+                return connection.address;
             }
         }
         return null;
@@ -459,13 +438,11 @@ import java.util.UUID;
 
     List<Connection> getConnectionByApp(int appId) {
         List<Connection> currentConnections = new ArrayList<Connection>();
-        synchronized (mConnections) {
-            Iterator<Connection> i = mConnections.iterator();
-            while (i.hasNext()) {
-                Connection connection = i.next();
-                if (connection.appId == appId) {
-                    currentConnections.add(connection);
-                }
+        Iterator<Connection> i = mConnections.iterator();
+        while (i.hasNext()) {
+            Connection connection = i.next();
+            if (connection.appId == appId) {
+                currentConnections.add(connection);
             }
         }
         return currentConnections;
@@ -495,10 +472,8 @@ import java.util.UUID;
      */
     Map<Integer, String> getConnectedMap() {
         Map<Integer, String> connectedmap = new HashMap<Integer, String>();
-        synchronized (mConnections) {
-            for (Connection conn : mConnections) {
-                connectedmap.put(conn.appId, conn.address);
-            }
+        for (Connection conn : mConnections) {
+            connectedmap.put(conn.appId, conn.address);
         }
         return connectedmap;
     }

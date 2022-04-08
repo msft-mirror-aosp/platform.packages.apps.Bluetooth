@@ -20,8 +20,6 @@ import android.bluetooth.BluetoothAdapter;
 import android.os.Message;
 import android.util.Log;
 
-import com.android.bluetooth.R;
-import com.android.bluetooth.telephony.BluetoothInCallService;
 import com.android.bluetooth.statemachine.State;
 import com.android.bluetooth.statemachine.StateMachine;
 
@@ -225,21 +223,6 @@ final class AdapterState extends StateMachine {
         }
 
         @Override
-        public void enter() {
-            super.enter();
-            mAdapterService.enableBluetoothInCallService(true);
-        }
-
-        @Override
-        public void exit() {
-            BluetoothInCallService bluetoothInCallService = BluetoothInCallService.getInstance();
-            if (bluetoothInCallService == null) {
-                mAdapterService.enableBluetoothInCallService(false);
-            }
-            super.exit();
-        }
-
-        @Override
         public boolean processMessage(Message msg) {
             switch (msg.what) {
                 case USER_TURN_OFF:
@@ -384,7 +367,6 @@ final class AdapterState extends StateMachine {
         @Override
         public void enter() {
             super.enter();
-            mAdapterService.enableBluetoothInCallService(false);
             sendMessageDelayed(BLE_STOP_TIMEOUT, BLE_STOP_TIMEOUT_DELAY);
             mAdapterService.bringDownBle();
         }

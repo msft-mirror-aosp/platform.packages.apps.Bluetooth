@@ -16,7 +16,6 @@
 
 package com.android.bluetooth.btservice;
 
-import static android.Manifest.permission.BLUETOOTH_CONNECT;
 import static org.mockito.Mockito.*;
 
 import android.bluetooth.BluetoothA2dp;
@@ -26,7 +25,6 @@ import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Bundle;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.UserHandle;
@@ -120,7 +118,7 @@ public class SilenceDeviceManagerTest {
             TestUtils.waitForLooperToFinishScheduledTask(mLooper);
             verify(mAdapterService, times(++mVerifyCount)).sendBroadcastAsUser(
                     intentArgument.capture(), eq(UserHandle.ALL),
-                    eq(BLUETOOTH_CONNECT), any(Bundle.class));
+                    eq(AdapterService.BLUETOOTH_PERM));
         }
 
         // Set silence state and check whether state changed successfully
@@ -132,7 +130,7 @@ public class SilenceDeviceManagerTest {
         if (wasSilenced != enableSilence) {
             verify(mAdapterService, times(++mVerifyCount)).sendBroadcastAsUser(
                     intentArgument.capture(), eq(UserHandle.ALL),
-                    eq(BLUETOOTH_CONNECT), any(Bundle.class));
+                    eq(AdapterService.BLUETOOTH_PERM));
             verifySilenceStateIntent(intentArgument.getValue());
         }
 
@@ -146,7 +144,7 @@ public class SilenceDeviceManagerTest {
             // after device is disconnected.
             verify(mAdapterService, times(++mVerifyCount)).sendBroadcastAsUser(
                     intentArgument.capture(), eq(UserHandle.ALL),
-                    eq(BLUETOOTH_CONNECT), any(Bundle.class));
+                    eq(AdapterService.BLUETOOTH_PERM));
         }
     }
 
@@ -160,7 +158,7 @@ public class SilenceDeviceManagerTest {
         // Should be no intent been broadcasted
         verify(mAdapterService, times(mVerifyCount)).sendBroadcastAsUser(
                 intentArgument.capture(), eq(UserHandle.ALL),
-                eq(BLUETOOTH_CONNECT), any(Bundle.class));
+                eq(AdapterService.BLUETOOTH_PERM));
     }
 
     void verifySilenceStateIntent(Intent intent) {

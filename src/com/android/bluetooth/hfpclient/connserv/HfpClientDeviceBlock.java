@@ -27,23 +27,19 @@ import android.telecom.PhoneAccount;
 import android.telecom.TelecomManager;
 import android.util.Log;
 
-import com.android.bluetooth.hfpclient.HeadsetClientService;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-// Helper class that manages the call handling for one device. HfpClientConnectionService holds a
+// Helper class that manages the call handling for one device. HfpClientConnectionService holdes a
 // list of such blocks and routes traffic from the UI.
 //
 // Lifecycle of a Device Block is managed entirely by the Service which creates it. In essence it
 // has only the active state otherwise the block should be GCed.
 public class HfpClientDeviceBlock {
-    private static final String KEY_SCO_STATE = "com.android.bluetooth.hfpclient.SCO_STATE";
-    private static final boolean DBG = false;
-
     private final String mTAG;
+    private static final boolean DBG = false;
     private final Context mContext;
     private final BluetoothDevice mDevice;
     private final PhoneAccount mPhoneAccount;
@@ -51,8 +47,8 @@ public class HfpClientDeviceBlock {
     private final TelecomManager mTelecomManager;
     private final HfpClientConnectionService mConnServ;
     private HfpClientConference mConference;
+
     private BluetoothHeadsetClient mHeadsetProfile;
-    private Bundle mScoState;
 
     HfpClientDeviceBlock(HfpClientConnectionService connServ, BluetoothDevice device,
             BluetoothHeadsetClient headsetProfile) {
@@ -68,10 +64,6 @@ public class HfpClientDeviceBlock {
         mTelecomManager.enablePhoneAccount(mPhoneAccount.getAccountHandle(), true);
         mTelecomManager.setUserSelectedOutgoingPhoneAccount(mPhoneAccount.getAccountHandle());
         mHeadsetProfile = headsetProfile;
-        mScoState = getScoStateFromDevice(device);
-        if (DBG) {
-            Log.d(mTAG, "SCO state = " + mScoState);
-        }
 
         // Read the current calls and add them to telecom if already present
         if (mHeadsetProfile != null) {
@@ -114,20 +106,6 @@ public class HfpClientDeviceBlock {
         return connection;
     }
 
-    synchronized void onAudioStateChange(int newState, int oldState) {
-        if (DBG) {
-            Log.d(mTAG, "Call audio state changed " + oldState + " -> " + newState);
-        }
-        mScoState.putInt(KEY_SCO_STATE, newState);
-
-        for (HfpClientConnection connection : mConnections.values()) {
-            connection.setExtras(mScoState);
-        }
-        if (mConference != null) {
-            mConference.setExtras(mScoState);
-        }
-    }
-
     synchronized HfpClientConnection onCreateUnknownConnection(BluetoothHeadsetClientCall call) {
         Uri number = Uri.fromParts(PhoneAccount.SCHEME_TEL, call.getNumber(), null);
         HfpClientConnection connection = mConnections.get(call.getUUID());
@@ -145,7 +123,6 @@ public class HfpClientDeviceBlock {
         if (mConference == null) {
             mConference = new HfpClientConference(mPhoneAccount.getAccountHandle(), mDevice,
                     mHeadsetProfile);
-            mConference.setExtras(mScoState);
         }
 
         if (connection1.getConference() == null) {
@@ -277,10 +254,6 @@ public class HfpClientDeviceBlock {
         } else {
             connection = new HfpClientConnection(mConnServ, mDevice, mHeadsetProfile, number);
         }
-        connection.setExtras(mScoState);
-        if (DBG) {
-            Log.d(mTAG, "Connection extras = " + connection.getExtras().toString());
-        }
 
         if (connection.getState() != Connection.STATE_DISCONNECTED) {
             mConnections.put(connection.getUUID(), connection);
@@ -319,7 +292,6 @@ public class HfpClientDeviceBlock {
                 if (mConference == null) {
                     mConference = new HfpClientConference(mPhoneAccount.getAccountHandle(), mDevice,
                             mHeadsetProfile);
-                    mConference.setExtras(mScoState);
                 }
                 if (mConference.addConnection(otherConn)) {
                     if (DBG) {
@@ -349,16 +321,4 @@ public class HfpClientDeviceBlock {
         }
     }
 
-    private Bundle getScoStateFromDevice(BluetoothDevice device) {
-        Bundle bundle = new Bundle();
-
-        HeadsetClientService headsetClientService = HeadsetClientService.getHeadsetClientService();
-        if (headsetClientService == null) {
-            return bundle;
-        }
-
-        bundle.putInt(KEY_SCO_STATE, headsetClientService.getAudioState(device));
-
-        return bundle;
-    }
 }

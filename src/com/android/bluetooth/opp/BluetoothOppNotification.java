@@ -49,7 +49,6 @@ import android.text.format.Formatter;
 import android.util.Log;
 
 import com.android.bluetooth.R;
-import com.android.bluetooth.Utils;
 
 import java.util.HashMap;
 
@@ -350,8 +349,7 @@ class BluetoothOppNotification {
                 intent.putExtra(Constants.EXTRA_BT_OPP_TRANSFER_ID, item.id);
                 intent.putExtra(Constants.EXTRA_BT_OPP_TRANSFER_PROGRESS, progress);
                 intent.putExtra(Constants.EXTRA_BT_OPP_ADDRESS, item.destination);
-                mContext.sendBroadcast(intent, Constants.HANDOVER_STATUS_PERMISSION,
-                        Utils.getTempAllowlistBroadcastOptions());
+                mContext.sendBroadcast(intent, Constants.HANDOVER_STATUS_PERMISSION);
                 continue;
             }
             // Build the notification object
@@ -392,8 +390,7 @@ class BluetoothOppNotification {
             intent.setClassName(Constants.THIS_PACKAGE_NAME, BluetoothOppReceiver.class.getName());
             intent.setDataAndNormalize(Uri.parse(BluetoothShare.CONTENT_URI + "/" + item.id));
 
-            b.setContentIntent(PendingIntent.getBroadcast(mContext, 0, intent,
-                        PendingIntent.FLAG_IMMUTABLE));
+            b.setContentIntent(PendingIntent.getBroadcast(mContext, 0, intent, 0));
             mNotificationMgr.notify(NOTIFICATION_ID_PROGRESS, b.build());
         }
     }
@@ -460,14 +457,10 @@ class BluetoothOppNotification {
                                             com.android.internal.R.color
                                                     .system_notification_accent_color,
                                             mContext.getTheme()))
-                            // TODO(b/171825892) Please replace FLAG_MUTABLE_UNAUDITED below
-                            // with either FLAG_IMMUTABLE (recommended) or FLAG_MUTABLE.
                             .setContentIntent(
-                                    PendingIntent.getBroadcast(mContext, 0, contentIntent,
-                                        PendingIntent.FLAG_IMMUTABLE))
+                                    PendingIntent.getBroadcast(mContext, 0, contentIntent, 0))
                             .setDeleteIntent(
-                                    PendingIntent.getBroadcast(mContext, 0, deleteIntent,
-                                        PendingIntent.FLAG_IMMUTABLE))
+                                    PendingIntent.getBroadcast(mContext, 0, deleteIntent, 0))
                             .setWhen(timeStamp)
                             .setLocalOnly(true)
                             .build();
@@ -530,13 +523,10 @@ class BluetoothOppNotification {
                                             com.android.internal.R.color
                                                     .system_notification_accent_color,
                                             mContext.getTheme()))
-
                             .setContentIntent(
-                                    PendingIntent.getBroadcast(mContext, 0, contentIntent,
-                                        PendingIntent.FLAG_IMMUTABLE))
+                                    PendingIntent.getBroadcast(mContext, 0, contentIntent, 0))
                             .setDeleteIntent(
-                                    PendingIntent.getBroadcast(mContext, 0, deleteIntent,
-                                        PendingIntent.FLAG_IMMUTABLE))
+                                    PendingIntent.getBroadcast(mContext, 0, deleteIntent, 0))
                             .setWhen(timeStamp)
                             .setLocalOnly(true)
                             .build();
@@ -564,7 +554,6 @@ class BluetoothOppNotification {
             BluetoothOppTransferInfo info = new BluetoothOppTransferInfo();
             BluetoothOppUtility.fillRecord(mContext, cursor, info);
             Uri contentUri = Uri.parse(BluetoothShare.CONTENT_URI + "/" + info.mID);
-            String fileNameSafe = info.mFileName.replaceAll("\\s", "_");
             Intent baseIntent = new Intent().setDataAndNormalize(contentUri)
                     .setClassName(Constants.THIS_PACKAGE_NAME,
                             BluetoothOppReceiver.class.getName());
@@ -572,35 +561,26 @@ class BluetoothOppNotification {
                     new Notification.Action.Builder(Icon.createWithResource(mContext,
                             R.drawable.ic_decline),
                             mContext.getText(R.string.incoming_file_confirm_cancel),
-                            // TODO(b/171825892) Please replace FLAG_MUTABLE_UNAUDITED below
-                            // with either FLAG_IMMUTABLE (recommended) or FLAG_MUTABLE.
                             PendingIntent.getBroadcast(mContext, 0,
                                     new Intent(baseIntent).setAction(Constants.ACTION_DECLINE),
-                                    PendingIntent.FLAG_IMMUTABLE)).build();
+                                    0)).build();
             Notification.Action actionAccept = new Notification.Action.Builder(
                     Icon.createWithResource(mContext,R.drawable.ic_accept),
                     mContext.getText(R.string.incoming_file_confirm_ok),
-                    // TODO(b/171825892) Please replace FLAG_MUTABLE_UNAUDITED below
-                    // with either FLAG_IMMUTABLE (recommended) or FLAG_MUTABLE.
                     PendingIntent.getBroadcast(mContext, 0,
-                            new Intent(baseIntent).setAction(Constants.ACTION_ACCEPT),
-                            PendingIntent.FLAG_IMMUTABLE)).build();
-            Notification public_n =
+                            new Intent(baseIntent).setAction(Constants.ACTION_ACCEPT), 0)).build();
+            Notification n =
                     new Notification.Builder(mContext, OPP_NOTIFICATION_CHANNEL).setOnlyAlertOnce(
                             true)
                             .setOngoing(true)
                             .setWhen(info.mTimeStamp)
                             .addAction(actionDecline)
                             .addAction(actionAccept)
-                            // TODO(b/171825892) Please replace FLAG_MUTABLE_UNAUDITED below
-                            // with either FLAG_IMMUTABLE (recommended) or FLAG_MUTABLE.
                             .setContentIntent(PendingIntent.getBroadcast(mContext, 0,
                                     new Intent(baseIntent).setAction(
-                                            Constants.ACTION_INCOMING_FILE_CONFIRM),
-                                    PendingIntent.FLAG_IMMUTABLE))
+                                            Constants.ACTION_INCOMING_FILE_CONFIRM), 0))
                             .setDeleteIntent(PendingIntent.getBroadcast(mContext, 0,
-                                    new Intent(baseIntent).setAction(Constants.ACTION_HIDE),
-                                    PendingIntent.FLAG_IMMUTABLE))
+                                    new Intent(baseIntent).setAction(Constants.ACTION_HIDE), 0))
                             .setColor(mContext.getResources()
                                     .getColor(
                                             com.android.internal.R.color
@@ -608,44 +588,13 @@ class BluetoothOppNotification {
                                             mContext.getTheme()))
                             .setContentTitle(mContext.getText(
                                     R.string.incoming_file_confirm_Notification_title))
-                            .setContentText(fileNameSafe)
+                            .setContentText(info.mFileName)
                             .setStyle(new Notification.BigTextStyle().bigText(mContext.getString(
                                     R.string.incoming_file_confirm_Notification_content,
-                                    info.mDeviceName, fileNameSafe)))
+                                    info.mDeviceName, info.mFileName)))
                             .setSubText(Formatter.formatFileSize(mContext, info.mTotalBytes))
                             .setSmallIcon(R.drawable.bt_incomming_file_notification)
                             .setLocalOnly(true)
-                            .build();
-            Notification n =
-                    new Notification.Builder(mContext, OPP_NOTIFICATION_CHANNEL).setOnlyAlertOnce(
-                            true)
-                            .setOngoing(true)
-                            .setWhen(info.mTimeStamp)
-                            // TODO(b/171825892) Please replace FLAG_MUTABLE_UNAUDITED below
-                            // with either FLAG_IMMUTABLE (recommended) or FLAG_MUTABLE.
-                            .setContentIntent(PendingIntent.getBroadcast(mContext, 0,
-                                    new Intent(baseIntent).setAction(
-                                            Constants.ACTION_INCOMING_FILE_CONFIRM),
-                                    PendingIntent.FLAG_IMMUTABLE))
-                            .setDeleteIntent(PendingIntent.getBroadcast(mContext, 0,
-                                    new Intent(baseIntent).setAction(Constants.ACTION_HIDE),
-                                    PendingIntent.FLAG_IMMUTABLE))
-                            .setColor(mContext.getResources()
-                                    .getColor(
-                                            com.android.internal.R.color
-                                                    .system_notification_accent_color,
-                                            mContext.getTheme()))
-                            .setContentTitle(mContext.getText(
-                                    R.string.incoming_file_confirm_Notification_title))
-                            .setContentText(fileNameSafe)
-                            .setStyle(new Notification.BigTextStyle().bigText(mContext.getString(
-                                    R.string.incoming_file_confirm_Notification_content,
-                                    info.mDeviceName, fileNameSafe)))
-                            .setSubText(Formatter.formatFileSize(mContext, info.mTotalBytes))
-                            .setSmallIcon(R.drawable.bt_incomming_file_notification)
-                            .setLocalOnly(true)
-                            .setVisibility(Notification.VISIBILITY_PRIVATE)
-                            .setPublicVersion(public_n)
                             .build();
             mNotificationMgr.notify(NOTIFICATION_ID_PROGRESS, n);
         }

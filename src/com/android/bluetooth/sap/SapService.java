@@ -1,8 +1,5 @@
 package com.android.bluetooth.sap;
 
-import static android.Manifest.permission.BLUETOOTH_CONNECT;
-
-import android.annotation.RequiresPermission;
 import android.annotation.TargetApi;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
@@ -14,8 +11,6 @@ import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.bluetooth.BluetoothUuid;
 import android.bluetooth.IBluetoothSap;
-import android.content.Attributable;
-import android.content.AttributionSource;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -81,7 +76,7 @@ public class SapService extends ProfileService {
     private static final int USER_CONFIRM_TIMEOUT_VALUE = 25000;
 
     private PowerManager.WakeLock mWakeLock = null;
-    private AdapterService mAdapterService;
+    private BluetoothAdapter mAdapter;
     private SocketAcceptThread mAcceptThread = null;
     private BluetoothServerSocket mServerSocket = null;
     private int mSdpHandle = -1;
@@ -123,7 +118,7 @@ public class SapService extends ProfileService {
     }
 
     private void removeSdpRecord() {
-        if (mAdapterService != null && mSdpHandle >= 0 && SdpManager.getDefaultManager() != null) {
+        if (mAdapter != null && mSdpHandle >= 0 && SdpManager.getDefaultManager() != null) {
             if (VERBOSE) {
                 Log.d(TAG, "Removing SDP record handle: " + mSdpHandle);
             }
@@ -160,7 +155,7 @@ public class SapService extends ProfileService {
                 // It is mandatory for MSE to support initiation of bonding and encryption.
                 // TODO: Consider reusing the mServerSocket - it is indented to be reused
                 //       for multiple connections.
-                mServerSocket = BluetoothAdapter.getDefaultAdapter().listenUsingRfcommOn(
+                mServerSocket = mAdapter.listenUsingRfcommOn(
                         BluetoothAdapter.SOCKET_CHANNEL_AUTO_STATIC_NO_SDP, true, true);
                 removeSdpRecord();
                 mSdpHandle = SdpManager.getDefaultManager()
@@ -173,10 +168,10 @@ public class SapService extends ProfileService {
 
             if (!initSocketOK) {
                 // Need to break out of this loop if BT is being turned off.
-                if (mAdapterService == null) {
+                if (mAdapter == null) {
                     break;
                 }
-                int state = mAdapterService.getState();
+                int state = mAdapter.getState();
                 if ((state != BluetoothAdapter.STATE_TURNING_ON) && (state
                         != BluetoothAdapter.STATE_ON)) {
                     Log.w(TAG, "initServerSocket failed as BT is (being) turned off");
@@ -315,7 +310,7 @@ public class SapService extends ProfileService {
 
         // Last SAP transaction is finished, we start to listen for incoming
         // rfcomm connection again
-        if (mAdapterService.isEnabled()) {
+        if (mAdapter.isEnabled()) {
             startRfcommSocketListener();
         }
     }
@@ -365,7 +360,7 @@ public class SapService extends ProfileService {
                         break;
                     }
 
-                    sRemoteDeviceName = Utils.getName(mRemoteDevice);
+                    sRemoteDeviceName = mRemoteDevice.getName();
                     // In case getRemoteName failed and return null
                     if (TextUtils.isEmpty(sRemoteDeviceName)) {
                         sRemoteDeviceName = getString(R.string.defaultname);
@@ -397,8 +392,7 @@ public class SapService extends ProfileService {
 
                         mIsWaitingAuthorization = true;
                         setUserTimeoutAlarm();
-                        sendBroadcast(intent, BLUETOOTH_CONNECT,
-                                Utils.getTempAllowlistBroadcastOptions());
+                        sendBroadcast(intent, BLUETOOTH_ADMIN_PERM);
 
                         if (VERBOSE) {
                             Log.v(TAG, "waiting for authorization for connection from: "
@@ -439,7 +433,7 @@ public class SapService extends ProfileService {
 
             switch (msg.what) {
                 case START_LISTENER:
-                    if (mAdapterService.isEnabled()) {
+                    if (mAdapter.isEnabled()) {
                         startRfcommSocketListener();
                     }
                     break;
@@ -526,7 +520,7 @@ public class SapService extends ProfileService {
             intent.putExtra(BluetoothProfile.EXTRA_PREVIOUS_STATE, prevState);
             intent.putExtra(BluetoothProfile.EXTRA_STATE, mState);
             intent.putExtra(BluetoothDevice.EXTRA_DEVICE, mRemoteDevice);
-            sendBroadcast(intent, BLUETOOTH_CONNECT, Utils.getTempAllowlistBroadcastOptions());
+            sendBroadcast(intent, BLUETOOTH_PERM);
         }
     }
 
@@ -572,7 +566,7 @@ public class SapService extends ProfileService {
 
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
         List<BluetoothDevice> deviceList = new ArrayList<BluetoothDevice>();
-        BluetoothDevice[] bondedDevices = mAdapterService.getBondedDevices();
+        Set<BluetoothDevice> bondedDevices = mAdapter.getBondedDevices();
         int connectionState;
         synchronized (this) {
             for (BluetoothDevice device : bondedDevices) {
@@ -615,7 +609,6 @@ public class SapService extends ProfileService {
      * @param connectionPolicy is the connection policy to set to for this profile
      * @return true if connectionPolicy is set, false on error
      */
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public boolean setConnectionPolicy(BluetoothDevice device, int connectionPolicy) {
         if (DEBUG) {
             Log.d(TAG, "Saved connectionPolicy " + device + " = " + connectionPolicy);
@@ -642,7 +635,6 @@ public class SapService extends ProfileService {
      * @return connection policy of the device
      * @hide
      */
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public int getConnectionPolicy(BluetoothDevice device) {
         enforceCallingOrSelfPermission(BLUETOOTH_PRIVILEGED,
                 "Need BLUETOOTH_PRIVILEGED permission");
@@ -671,7 +663,7 @@ public class SapService extends ProfileService {
             Log.w(TAG, "Unable to register sap receiver", e);
         }
         mInterrupted = false;
-        mAdapterService = AdapterService.getAdapterService();
+        mAdapter = BluetoothAdapter.getDefaultAdapter();
         // start RFCOMM listener
         mSessionStatusHandler.sendMessage(mSessionStatusHandler.obtainMessage(START_LISTENER));
         setSapService(this);
@@ -738,8 +730,7 @@ public class SapService extends ProfileService {
         cancelUserTimeoutAlarm();
         mRemoveTimeoutMsg = true;
         Intent timeoutIntent = new Intent(USER_CONFIRM_TIMEOUT_ACTION);
-        PendingIntent pIntent = PendingIntent.getBroadcast(this, 0, timeoutIntent,
-                PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pIntent = PendingIntent.getBroadcast(this, 0, timeoutIntent, 0);
         mAlarmManager.set(AlarmManager.RTC_WAKEUP,
                 System.currentTimeMillis() + USER_CONFIRM_TIMEOUT_VALUE, pIntent);
     }
@@ -753,8 +744,7 @@ public class SapService extends ProfileService {
         }
         if (mRemoveTimeoutMsg) {
             Intent timeoutIntent = new Intent(USER_CONFIRM_TIMEOUT_ACTION);
-            PendingIntent sender = PendingIntent.getBroadcast(this, 0, timeoutIntent,
-                    PendingIntent.FLAG_IMMUTABLE);
+            PendingIntent sender = PendingIntent.getBroadcast(this, 0, timeoutIntent, 0);
             mAlarmManager.cancel(sender);
             mRemoveTimeoutMsg = false;
         }
@@ -766,7 +756,7 @@ public class SapService extends ProfileService {
         intent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
         intent.putExtra(BluetoothDevice.EXTRA_ACCESS_REQUEST_TYPE,
                 BluetoothDevice.REQUEST_TYPE_SIM_ACCESS);
-        sendBroadcast(intent, BLUETOOTH_CONNECT);
+        sendBroadcast(intent, BLUETOOTH_PERM);
     }
 
     private void sendShutdownMessage() {
@@ -774,7 +764,7 @@ public class SapService extends ProfileService {
         To speed up things, simply delete them. */
         if (mRemoveTimeoutMsg) {
             Intent timeoutIntent = new Intent(USER_CONFIRM_TIMEOUT_ACTION);
-            sendBroadcast(timeoutIntent);
+            sendBroadcast(timeoutIntent, BLUETOOTH_PERM);
             mIsWaitingAuthorization = false;
             cancelUserTimeoutAlarm();
         }
@@ -921,14 +911,18 @@ public class SapService extends ProfileService {
     private static class SapBinder extends IBluetoothSap.Stub implements IProfileServiceBinder {
         private SapService mService;
 
-        @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-        private SapService getService(AttributionSource source) {
-            if (!Utils.checkCallerIsSystemOrActiveUser(TAG)
-                    || !Utils.checkServiceAvailable(mService, TAG)
-                    || !Utils.checkConnectPermissionForDataDelivery(mService, source, TAG)) {
+        private SapService getService() {
+            if (!Utils.checkCaller()) {
+                Log.w(TAG, "call not allowed for non-active user");
                 return null;
             }
-            return mService;
+
+            if (mService != null && mService.isAvailable()) {
+                mService.enforceCallingOrSelfPermission(BLUETOOTH_PERM,
+                        "Need BLUETOOTH permission");
+                return mService;
+            }
+            return null;
         }
 
         SapBinder(SapService service) {
@@ -942,19 +936,19 @@ public class SapService extends ProfileService {
         }
 
         @Override
-        public int getState(AttributionSource source) {
+        public int getState() {
             Log.v(TAG, "getState()");
-            SapService service = getService(source);
+            SapService service = getService();
             if (service == null) {
                 return BluetoothSap.STATE_DISCONNECTED;
             }
-            return service.getState();
+            return getService().getState();
         }
 
         @Override
-        public BluetoothDevice getClient(AttributionSource source) {
+        public BluetoothDevice getClient() {
             Log.v(TAG, "getClient()");
-            SapService service = getService(source);
+            SapService service = getService();
             if (service == null) {
                 return null;
             }
@@ -963,10 +957,9 @@ public class SapService extends ProfileService {
         }
 
         @Override
-        public boolean isConnected(BluetoothDevice device, AttributionSource source) {
+        public boolean isConnected(BluetoothDevice device) {
             Log.v(TAG, "isConnected()");
-            Attributable.setAttributionSource(device, source);
-            SapService service = getService(source);
+            SapService service = getService();
             if (service == null) {
                 return false;
             }
@@ -975,10 +968,9 @@ public class SapService extends ProfileService {
         }
 
         @Override
-        public boolean connect(BluetoothDevice device, AttributionSource source) {
+        public boolean connect(BluetoothDevice device) {
             Log.v(TAG, "connect()");
-            Attributable.setAttributionSource(device, source);
-            SapService service = getService(source);
+            SapService service = getService();
             if (service == null) {
                 return false;
             }
@@ -986,10 +978,9 @@ public class SapService extends ProfileService {
         }
 
         @Override
-        public boolean disconnect(BluetoothDevice device, AttributionSource source) {
+        public boolean disconnect(BluetoothDevice device) {
             Log.v(TAG, "disconnect()");
-            Attributable.setAttributionSource(device, source);
-            SapService service = getService(source);
+            SapService service = getService();
             if (service == null) {
                 return false;
             }
@@ -997,9 +988,9 @@ public class SapService extends ProfileService {
         }
 
         @Override
-        public List<BluetoothDevice> getConnectedDevices(AttributionSource source) {
+        public List<BluetoothDevice> getConnectedDevices() {
             Log.v(TAG, "getConnectedDevices()");
-            SapService service = getService(source);
+            SapService service = getService();
             if (service == null) {
                 return new ArrayList<BluetoothDevice>(0);
             }
@@ -1007,10 +998,9 @@ public class SapService extends ProfileService {
         }
 
         @Override
-        public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states,
-                AttributionSource source) {
+        public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
             Log.v(TAG, "getDevicesMatchingConnectionStates()");
-            SapService service = getService(source);
+            SapService service = getService();
             if (service == null) {
                 return new ArrayList<BluetoothDevice>(0);
             }
@@ -1018,10 +1008,9 @@ public class SapService extends ProfileService {
         }
 
         @Override
-        public int getConnectionState(BluetoothDevice device, AttributionSource source) {
+        public int getConnectionState(BluetoothDevice device) {
             Log.v(TAG, "getConnectionState()");
-            Attributable.setAttributionSource(device, source);
-            SapService service = getService(source);
+            SapService service = getService();
             if (service == null) {
                 return BluetoothProfile.STATE_DISCONNECTED;
             }
@@ -1029,10 +1018,8 @@ public class SapService extends ProfileService {
         }
 
         @Override
-        public boolean setConnectionPolicy(BluetoothDevice device, int connectionPolicy,
-                AttributionSource source) {
-            Attributable.setAttributionSource(device, source);
-            SapService service = getService(source);
+        public boolean setConnectionPolicy(BluetoothDevice device, int connectionPolicy) {
+            SapService service = getService();
             if (service == null) {
                 return false;
             }
@@ -1040,9 +1027,8 @@ public class SapService extends ProfileService {
         }
 
         @Override
-        public int getConnectionPolicy(BluetoothDevice device, AttributionSource source) {
-            Attributable.setAttributionSource(device, source);
-            SapService service = getService(source);
+        public int getConnectionPolicy(BluetoothDevice device) {
+            SapService service = getService();
             if (service == null) {
                 return BluetoothProfile.CONNECTION_POLICY_UNKNOWN;
             }

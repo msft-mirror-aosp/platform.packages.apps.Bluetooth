@@ -45,8 +45,6 @@
 
 package com.android.bluetooth.hearingaid;
 
-import static android.Manifest.permission.BLUETOOTH_CONNECT;
-
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHearingAid;
 import android.bluetooth.BluetoothProfile;
@@ -55,7 +53,6 @@ import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 
-import com.android.bluetooth.Utils;
 import com.android.bluetooth.btservice.ProfileService;
 import com.android.bluetooth.statemachine.State;
 import com.android.bluetooth.statemachine.StateMachine;
@@ -269,8 +266,8 @@ final class HearingAidStateMachine extends StateMachine {
                     Log.w(TAG, "Connecting connection timeout: " + mDevice);
                     mNativeInterface.disconnectHearingAid(mDevice);
                     if (mService.isConnectedPeerDevices(mDevice)) {
-                        Log.w(TAG, "One side connection timeout: " + mDevice + ". Try acceptlist");
-                        mNativeInterface.addToAcceptlist(mDevice);
+                        Log.w(TAG, "One side connection timeout: " + mDevice + ". Try whitelist");
+                        mNativeInterface.addToWhiteList(mDevice);
                     }
                     HearingAidStackEvent disconnectEvent =
                             new HearingAidStackEvent(
@@ -489,7 +486,7 @@ final class HearingAidStateMachine extends StateMachine {
         private void processConnectionEvent(int state) {
             switch (state) {
                 case HearingAidStackEvent.CONNECTION_STATE_DISCONNECTED:
-                    Log.i(TAG, "Disconnected from " + mDevice + " but still in Acceptlist");
+                    Log.i(TAG, "Disconnected from " + mDevice + " but still in Whitelist");
                     transitionTo(mDisconnected);
                     break;
                 case HearingAidStackEvent.CONNECTION_STATE_DISCONNECTING:
@@ -526,7 +523,7 @@ final class HearingAidStateMachine extends StateMachine {
         intent.putExtra(BluetoothDevice.EXTRA_DEVICE, mDevice);
         intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT
                         | Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
-        mService.sendBroadcast(intent, BLUETOOTH_CONNECT, Utils.getTempAllowlistBroadcastOptions());
+        mService.sendBroadcast(intent, ProfileService.BLUETOOTH_PERM);
     }
 
     private static String messageWhatToString(int what) {

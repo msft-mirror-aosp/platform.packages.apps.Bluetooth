@@ -16,30 +16,20 @@
 
 package com.android.bluetooth.btservice;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-
 final class DiscoveringPackage {
-    private @NonNull String mPackageName;
-    private @Nullable String mPermission;
-    private boolean mHasDisavowedLocation;
+    private String mPackageName;
+    private String mPermission;
 
-    DiscoveringPackage(@NonNull String packageName, @Nullable String permission,
-            boolean hasDisavowedLocation) {
+    DiscoveringPackage(String packageName, String permission) {
         mPackageName = packageName;
         mPermission = permission;
-        mHasDisavowedLocation = hasDisavowedLocation;
     }
 
-    public @NonNull String getPackageName() {
+    public String getPackageName() {
         return mPackageName;
     }
 
-    public @Nullable String getPermission() {
+    public String getPermission() {
         return mPermission;
-    }
-
-    public boolean hasDisavowedLocation() {
-        return mHasDisavowedLocation;
     }
 }

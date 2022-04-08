@@ -16,15 +16,10 @@
 
 package com.android.bluetooth.btservice;
 
-import static android.Manifest.permission.BLUETOOTH_CONNECT;
-
-import android.annotation.RequiresPermission;
-import android.app.ActivityThread;
 import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothProfile;
-import android.content.Attributable;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -35,7 +30,6 @@ import android.os.Message;
 import android.os.UserHandle;
 import android.util.Log;
 
-import com.android.bluetooth.Utils;
 import com.android.bluetooth.a2dp.A2dpService;
 import com.android.bluetooth.hfp.HeadsetService;
 import com.android.internal.annotations.VisibleForTesting;
@@ -129,8 +123,6 @@ public class SilenceDeviceManager {
             switch (msg.what) {
                 case MSG_SILENCE_DEVICE_STATE_CHANGED: {
                     BluetoothDevice device = (BluetoothDevice) msg.obj;
-                    Attributable.setAttributionSource(device,
-                            ActivityThread.currentAttributionSource());
                     boolean state = (msg.arg1 == ENABLE_SILENCE);
                     handleSilenceDeviceStateChanged(device, state);
                 }
@@ -254,7 +246,6 @@ public class SilenceDeviceManager {
         return true;
     }
 
-    @RequiresPermission(android.Manifest.permission.MODIFY_PHONE_STATE)
     void handleSilenceDeviceStateChanged(BluetoothDevice device, boolean state) {
         boolean oldState = getSilenceMode(device);
         if (oldState == state) {
@@ -287,8 +278,7 @@ public class SilenceDeviceManager {
     void broadcastSilenceStateChange(BluetoothDevice device, boolean state) {
         Intent intent = new Intent(BluetoothDevice.ACTION_SILENCE_MODE_CHANGED);
         intent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
-        mAdapterService.sendBroadcastAsUser(intent, UserHandle.ALL, BLUETOOTH_CONNECT,
-                Utils.getTempAllowlistBroadcastOptions());
+        mAdapterService.sendBroadcastAsUser(intent, UserHandle.ALL, AdapterService.BLUETOOTH_PERM);
 
     }
 

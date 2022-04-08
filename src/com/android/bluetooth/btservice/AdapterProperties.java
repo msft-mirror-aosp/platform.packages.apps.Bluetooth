@@ -16,9 +16,6 @@
 
 package com.android.bluetooth.btservice;
 
-import static android.Manifest.permission.BLUETOOTH_CONNECT;
-import static android.Manifest.permission.BLUETOOTH_SCAN;
-
 import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothA2dpSink;
 import android.bluetooth.BluetoothAdapter;
@@ -37,8 +34,6 @@ import android.bluetooth.BluetoothPbap;
 import android.bluetooth.BluetoothPbapClient;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothSap;
-import android.bluetooth.BufferConstraint;
-import android.bluetooth.BufferConstraints;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -57,9 +52,7 @@ import com.android.bluetooth.btservice.RemoteDevices.DeviceProperties;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 class AdapterProperties {
@@ -121,11 +114,6 @@ class AdapterProperties {
     private boolean mIsLeExtendedAdvertisingSupported;
     private boolean mIsLePeriodicAdvertisingSupported;
     private int mLeMaximumAdvertisingDataLength;
-
-    private int mIsDynamicAudioBufferSizeSupported;
-    private int mDynamicAudioBufferSizeSupportedCodecsGroup1;
-    private int mDynamicAudioBufferSizeSupportedCodecsGroup2;
-    private List<BufferConstraint> mBufferConstraintList;
 
     private boolean mReceiverRegistered;
     private BroadcastReceiver mReceiver = new BroadcastReceiver() {
@@ -250,14 +238,12 @@ class AdapterProperties {
         mBondedDevices.clear();
         invalidateBluetoothCaches();
     }
+
     private static void invalidateGetProfileConnectionStateCache() {
         BluetoothAdapter.invalidateGetProfileConnectionStateCache();
     }
     private static void invalidateIsOffloadedFilteringSupportedCache() {
         BluetoothAdapter.invalidateIsOffloadedFilteringSupportedCache();
-    }
-    private static void invalidateGetConnectionStateCache() {
-        BluetoothAdapter.invalidateGetAdapterConnectionStateCache();
     }
     private static void invalidateGetBondStateCache() {
         BluetoothDevice.invalidateBluetoothGetBondStateCache();
@@ -265,7 +251,6 @@ class AdapterProperties {
     private static void invalidateBluetoothCaches() {
         invalidateGetProfileConnectionStateCache();
         invalidateIsOffloadedFilteringSupportedCache();
-        invalidateGetConnectionStateCache();
         invalidateGetBondStateCache();
     }
 
@@ -405,7 +390,6 @@ class AdapterProperties {
      */
     void setConnectionState(int connectionState) {
         mConnectionState = connectionState;
-        invalidateGetConnectionStateCache();
     }
 
     /**
@@ -526,44 +510,6 @@ class AdapterProperties {
      */
     boolean isA2dpOffloadEnabled() {
         return mA2dpOffloadEnabled;
-    }
-
-    /**
-     * @return Dynamic Audio Buffer support
-     */
-    int getDynamicBufferSupport() {
-        if (!mA2dpOffloadEnabled) {
-            // TODO: Enable Dynamic Audio Buffer for A2DP software encoding when ready.
-            mIsDynamicAudioBufferSizeSupported =
-                BluetoothA2dp.DYNAMIC_BUFFER_SUPPORT_NONE;
-        } else {
-            if ((mDynamicAudioBufferSizeSupportedCodecsGroup1 != 0)
-                    || (mDynamicAudioBufferSizeSupportedCodecsGroup2 != 0)) {
-                mIsDynamicAudioBufferSizeSupported =
-                    BluetoothA2dp.DYNAMIC_BUFFER_SUPPORT_A2DP_OFFLOAD;
-            } else {
-                mIsDynamicAudioBufferSizeSupported =
-                    BluetoothA2dp.DYNAMIC_BUFFER_SUPPORT_NONE;
-            }
-        }
-        return mIsDynamicAudioBufferSizeSupported;
-    }
-
-    /**
-     * @return Dynamic Audio Buffer Capability
-     */
-    BufferConstraints getBufferConstraints() {
-        return new BufferConstraints(mBufferConstraintList);
-    }
-
-    /**
-     * Set the dynamic audio buffer size
-     *
-     * @param codec the codecs to set
-     * @param size the size to set
-     */
-    boolean setBufferLengthMillis(int codec, int value) {
-        return mService.setBufferLengthMillisNative(codec, value);
     }
 
     /**
@@ -695,8 +641,7 @@ class AdapterProperties {
                     Log.w(TAG, "ADAPTER_CONNECTION_STATE_CHANGE: unexpected transition for profile="
                             + profile + ", device=" + device + ", " + prevState + " -> " + state);
                 }
-                mService.sendBroadcastAsUser(intent, UserHandle.ALL, BLUETOOTH_CONNECT,
-                        Utils.getTempAllowlistBroadcastOptions());
+                mService.sendBroadcastAsUser(intent, UserHandle.ALL, AdapterService.BLUETOOTH_PERM);
             }
         }
     }
@@ -859,17 +804,18 @@ class AdapterProperties {
                         intent.putExtra(BluetoothAdapter.EXTRA_LOCAL_NAME, mName);
                         intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
                         mService.sendBroadcastAsUser(intent, UserHandle.ALL,
-                                BLUETOOTH_CONNECT, Utils.getTempAllowlistBroadcastOptions());
+                                AdapterService.BLUETOOTH_PERM);
                         debugLog("Name is: " + mName);
                         break;
                     case AbstractionLayer.BT_PROPERTY_BDADDR:
                         mAddress = val;
                         String address = Utils.getAddressStringFromByte(mAddress);
+                        debugLog("Address is:" + address);
                         intent = new Intent(BluetoothAdapter.ACTION_BLUETOOTH_ADDRESS_CHANGED);
                         intent.putExtra(BluetoothAdapter.EXTRA_BLUETOOTH_ADDRESS, address);
                         intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
                         mService.sendBroadcastAsUser(intent, UserHandle.ALL,
-                                BLUETOOTH_CONNECT, Utils.getTempAllowlistBroadcastOptions());
+                                AdapterService.BLUETOOTH_PERM);
                         break;
                     case AbstractionLayer.BT_PROPERTY_CLASS_OF_DEVICE:
                         if (val == null || val.length != 3) {
@@ -889,8 +835,7 @@ class AdapterProperties {
                         intent = new Intent(BluetoothAdapter.ACTION_SCAN_MODE_CHANGED);
                         intent.putExtra(BluetoothAdapter.EXTRA_SCAN_MODE, mScanMode);
                         intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
-                        mService.sendBroadcast(intent, BLUETOOTH_SCAN,
-                                Utils.getTempAllowlistBroadcastOptions());
+                        mService.sendBroadcast(intent, AdapterService.BLUETOOTH_PERM);
                         debugLog("Scan Mode:" + mScanMode);
                         break;
                     case AbstractionLayer.BT_PROPERTY_UUIDS:
@@ -913,10 +858,6 @@ class AdapterProperties {
 
                     case AbstractionLayer.BT_PROPERTY_LOCAL_LE_FEATURES:
                         updateFeatureSupport(val);
-                        break;
-
-                    case AbstractionLayer.BT_PROPERTY_DYNAMIC_AUDIO_BUFFER:
-                        updateDynamicAudioBufferSupport(val);
                         break;
 
                     case AbstractionLayer.BT_PROPERTY_LOCAL_IO_CAPS:
@@ -953,10 +894,6 @@ class AdapterProperties {
         mIsLePeriodicAdvertisingSupported = ((0xFF & ((int) val[17])) != 0);
         mLeMaximumAdvertisingDataLength =
                 (0xFF & ((int) val[18])) + ((0xFF & ((int) val[19])) << 8);
-        mDynamicAudioBufferSizeSupportedCodecsGroup1 =
-                ((0xFF & ((int) val[21])) << 8) + (0xFF & ((int) val[20]));
-        mDynamicAudioBufferSizeSupportedCodecsGroup2 =
-                ((0xFF & ((int) val[23])) << 8) + (0xFF & ((int) val[22]));
 
         Log.d(TAG, "BT_PROPERTY_LOCAL_LE_FEATURES: update from BT controller"
                 + " mNumOfAdvertisementInstancesSupported = "
@@ -972,34 +909,8 @@ class AdapterProperties {
                 + mIsLe2MPhySupported + " mIsLeCodedPhySupported = " + mIsLeCodedPhySupported
                 + " mIsLeExtendedAdvertisingSupported = " + mIsLeExtendedAdvertisingSupported
                 + " mIsLePeriodicAdvertisingSupported = " + mIsLePeriodicAdvertisingSupported
-                + " mLeMaximumAdvertisingDataLength = " + mLeMaximumAdvertisingDataLength
-                + " mDynamicAudioBufferSizeSupportedCodecsGroup1 = "
-                + mDynamicAudioBufferSizeSupportedCodecsGroup1
-                + " mDynamicAudioBufferSizeSupportedCodecsGroup2 = "
-                + mDynamicAudioBufferSizeSupportedCodecsGroup2);
+                + " mLeMaximumAdvertisingDataLength = " + mLeMaximumAdvertisingDataLength);
         invalidateIsOffloadedFilteringSupportedCache();
-    }
-
-    private void updateDynamicAudioBufferSupport(byte[] val) {
-        // bufferConstraints is the table indicates the capability of all the codecs
-        // with buffer time. The raw is codec number, and the column is buffer type. There are 3
-        // buffer types - default/maximum/minimum.
-        // The maximum number of raw is BUFFER_CODEC_MAX_NUM(32).
-        // The maximum number of column is BUFFER_TYPE_MAX(3).
-        // The array element indicates the buffer time, the size is two octet.
-        mBufferConstraintList = new ArrayList<BufferConstraint>();
-
-        for (int i = 0; i < BufferConstraints.BUFFER_CODEC_MAX_NUM; i++) {
-            int defaultBufferTime = ((0xFF & ((int) val[i * 6 + 1])) << 8)
-                    + (0xFF & ((int) val[i * 6]));
-            int maximumBufferTime = ((0xFF & ((int) val[i * 6 + 3])) << 8)
-                    + (0xFF & ((int) val[i * 6 + 2]));
-            int minimumBufferTime = ((0xFF & ((int) val[i * 6 + 5])) << 8)
-                    + (0xFF & ((int) val[i * 6 + 4]));
-            BufferConstraint bufferConstraint = new BufferConstraint(defaultBufferTime,
-                    maximumBufferTime, minimumBufferTime);
-            mBufferConstraintList.add(bufferConstraint);
-        }
     }
 
     void onBluetoothReady() {
@@ -1037,14 +948,12 @@ class AdapterProperties {
                 mService.clearDiscoveringPackages();
                 mDiscoveryEndMs = System.currentTimeMillis();
                 intent = new Intent(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
-                mService.sendBroadcast(intent, BLUETOOTH_SCAN,
-                        Utils.getTempAllowlistBroadcastOptions());
+                mService.sendBroadcast(intent, AdapterService.BLUETOOTH_PERM);
             } else if (state == AbstractionLayer.BT_DISCOVERY_STARTED) {
                 mDiscovering = true;
                 mDiscoveryEndMs = System.currentTimeMillis() + DEFAULT_DISCOVERY_TIMEOUT_MS;
                 intent = new Intent(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
-                mService.sendBroadcast(intent, BLUETOOTH_SCAN,
-                        Utils.getTempAllowlistBroadcastOptions());
+                mService.sendBroadcast(intent, AdapterService.BLUETOOTH_PERM);
             }
         }
     }
@@ -1066,7 +975,7 @@ class AdapterProperties {
         for (BluetoothDevice device : mBondedDevices) {
             writer.println(
                     "    " + device.getAddress() + " [" + dumpDeviceType(device.getType()) + "] "
-                            + Utils.getName(device));
+                            + device.getName());
         }
     }
 

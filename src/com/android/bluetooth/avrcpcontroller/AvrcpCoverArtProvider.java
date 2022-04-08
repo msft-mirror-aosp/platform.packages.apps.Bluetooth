@@ -21,14 +21,12 @@ import android.bluetooth.BluetoothDevice;
 import android.content.ContentProvider;
 import android.content.ContentValues;
 import android.database.Cursor;
-import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
 
 /**
  * A provider of downloaded cover art images.
@@ -50,6 +48,7 @@ public class AvrcpCoverArtProvider extends ContentProvider {
     private static final boolean DBG = Log.isLoggable(TAG, Log.DEBUG);
 
     private BluetoothAdapter mAdapter;
+    private AvrcpCoverArtStorage mStorage;
 
     public AvrcpCoverArtProvider() {
     }
@@ -61,69 +60,37 @@ public class AvrcpCoverArtProvider extends ContentProvider {
      * Get the Uri for a cover art image based on the device and image handle
      *
      * @param device The Bluetooth device from which an image originated
-     * @param imageUuid The provided UUID of the cover artwork
+     * @param imageHandle The provided handle of the cover artwork
      * @return The Uri this provider will store the downloaded image at
      */
-    public static Uri getImageUri(BluetoothDevice device, String imageUuid) {
-        if (device == null || imageUuid == null || "".equals(imageUuid)) return null;
+    public static Uri getImageUri(BluetoothDevice device, String imageHandle) {
+        if (device == null || imageHandle == null || "".equals(imageHandle)) return null;
         Uri uri = CONTENT_URI.buildUpon().appendQueryParameter("device", device.getAddress())
-                .appendQueryParameter("uuid", imageUuid)
+                .appendQueryParameter("handle", imageHandle)
                 .build();
         debug("getImageUri -> " + uri.toString());
         return uri;
     }
 
-    private Bitmap getImage(BluetoothDevice device, String imageUuid) {
-        AvrcpControllerService service = AvrcpControllerService.getAvrcpControllerService();
-        if (service == null) {
-            debug("Failed to get service, cover art not available");
-            return null;
-        }
-
-        AvrcpCoverArtManager manager = service.getCoverArtManager();
-        if (manager == null) {
-            debug("Failed to get cover art manager. Cover art may not be enabled.");
-            return null;
-        }
-        return manager.getImage(device, imageUuid);
-    }
-
-    private ParcelFileDescriptor getImageDescriptor(BluetoothDevice device, String imageUuid)
-            throws FileNotFoundException, IOException {
-        debug("getImageDescriptor(" + device + ", " + imageUuid + ")");
-        Bitmap image = getImage(device, imageUuid);
-        if (image == null) {
-            debug("Could not get requested image");
-            throw new FileNotFoundException();
-        }
-
-        final ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
-        Thread transferThread = new Thread() {
-            public void run() {
-                try {
-                    FileOutputStream fout =
-                            new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]);
-                    image.compress(Bitmap.CompressFormat.PNG, 100, fout);
-                    fout.flush();
-                    fout.close();
-                } catch (IOException e) {
-                    /* Something bad must have happened writing the image data */
-                }
-            }
-        };
-        transferThread.start();
-        return pipe[0];
+    private ParcelFileDescriptor getImageDescriptor(BluetoothDevice device, String imageHandle)
+            throws FileNotFoundException {
+        debug("getImageDescriptor(" + device + ", " + imageHandle + ")");
+        File file = mStorage.getImageFile(device, imageHandle);
+        if (file == null) throw new FileNotFoundException();
+        ParcelFileDescriptor pdf = ParcelFileDescriptor.open(file,
+                ParcelFileDescriptor.MODE_READ_ONLY);
+        return pdf;
     }
 
     @Override
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         debug("openFile(" + uri + ", '" + mode + "')");
         String address = null;
-        String imageUuid = null;
+        String imageHandle = null;
         BluetoothDevice device = null;
         try {
             address = uri.getQueryParameter("device");
-            imageUuid = uri.getQueryParameter("uuid");
+            imageHandle = uri.getQueryParameter("handle");
         } catch (NullPointerException e) {
             throw new FileNotFoundException();
         }
@@ -134,19 +101,13 @@ public class AvrcpCoverArtProvider extends ContentProvider {
             throw new FileNotFoundException();
         }
 
-        ParcelFileDescriptor pfd = null;
-        try {
-            pfd = getImageDescriptor(device, imageUuid);
-        } catch (IOException e) {
-            debug("Failed to create inputstream from Bitmap");
-            throw new FileNotFoundException();
-        }
-        return pfd;
+        return getImageDescriptor(device, imageHandle);
     }
 
     @Override
     public boolean onCreate() {
         mAdapter = BluetoothAdapter.getDefaultAdapter();
+        mStorage = new AvrcpCoverArtStorage(getContext());
         return true;
     }
 

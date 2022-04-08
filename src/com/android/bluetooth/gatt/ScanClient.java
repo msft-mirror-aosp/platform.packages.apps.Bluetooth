@@ -24,6 +24,7 @@ import android.os.UserHandle;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Helper class identifying a client that has requested LE scan results.
@@ -32,6 +33,7 @@ import java.util.Objects;
  */
 /* package */class ScanClient {
     public int scannerId;
+    public UUID[] uuids;
     public ScanSettings settings;
     public ScanSettings passiveSettings;
     public int appUid;
@@ -46,7 +48,6 @@ import java.util.Objects;
     public boolean hasNetworkSettingsPermission;
     public boolean hasNetworkSetupWizardPermission;
     public boolean hasScanWithoutLocationPermission;
-    public boolean hasDisavowedLocation;
     public List<String> associatedDevices;
 
     public AppScanStats stats = null;
@@ -55,16 +56,26 @@ import java.util.Objects;
             new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
 
     ScanClient(int scannerId) {
-        this(scannerId, DEFAULT_SCAN_SETTINGS, null, null);
+        this(scannerId, new UUID[0], DEFAULT_SCAN_SETTINGS, null, null);
+    }
+
+    ScanClient(int scannerId, UUID[] uuids) {
+        this(scannerId, uuids, DEFAULT_SCAN_SETTINGS, null, null);
     }
 
     ScanClient(int scannerId, ScanSettings settings, List<ScanFilter> filters) {
-        this(scannerId, settings, filters, null);
+        this(scannerId, new UUID[0], settings, filters, null);
     }
 
     ScanClient(int scannerId, ScanSettings settings, List<ScanFilter> filters,
             List<List<ResultStorageDescriptor>> storages) {
+        this(scannerId, new UUID[0], settings, filters, storages);
+    }
+
+    private ScanClient(int scannerId, UUID[] uuids, ScanSettings settings, List<ScanFilter> filters,
+            List<List<ResultStorageDescriptor>> storages) {
         this.scannerId = scannerId;
+        this.uuids = uuids;
         this.settings = settings;
         this.passiveSettings = null;
         this.filters = filters;

@@ -18,7 +18,6 @@ package com.android.bluetooth.avrcpcontroller;
 
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
-import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.SystemProperties;
 import android.util.Log;
@@ -78,7 +77,8 @@ public class AvrcpCoverArtManager {
          * Notify of a get image download completing
          *
          * @param device The device the image handle belongs to
-         * @param event The download event, containing the downloaded image's information
+         * @param imageHandle The handle of the requested image
+         * @param uri The Uri that the image is available at in storage
          */
         void onImageDownloadComplete(BluetoothDevice device, DownloadEvent event);
     }
@@ -99,7 +99,7 @@ public class AvrcpCoverArtManager {
         }
 
         public String getHandleUuid(String handle) {
-            if (!isValidImageHandle(handle)) return null;
+            if (handle == null) return null;
             String newUuid = UUID.randomUUID().toString();
             String existingUuid = mUuids.putIfAbsent(handle, newUuid);
             if (existingUuid != null) return existingUuid;
@@ -119,24 +119,6 @@ public class AvrcpCoverArtManager {
         public Set<String> getSessionHandles() {
             return mUuids.keySet();
         }
-    }
-
-    /**
-     * Validate an image handle meets the AVRCP and BIP specifications
-     *
-     * By the BIP specification that AVRCP uses, "Image handles are 7 character long strings
-     * containing only the digits 0 to 9."
-     *
-     * @return True if the input string is a valid image handle
-     */
-    public static boolean isValidImageHandle(String handle) {
-        if (handle == null || handle.length() != 7) return false;
-        for (char c : handle.toCharArray()) {
-            if (!Character.isDigit(c)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     public AvrcpCoverArtManager(AvrcpControllerService service, Callback callback) {
@@ -211,6 +193,7 @@ public class AvrcpCoverArtManager {
         for (BluetoothDevice device : mClients.keySet()) {
             disconnect(device);
         }
+        mCoverArtStorage.clear();
     }
 
     /**
@@ -243,7 +226,7 @@ public class AvrcpCoverArtManager {
      */
     public String getUuidForHandle(BluetoothDevice device, String handle) {
         AvrcpBipSession session = getSession(device);
-        if (session == null || !isValidImageHandle(handle)) return null;
+        if (session == null || handle == null) return null;
         return session.getHandleUuid(handle);
     }
 
@@ -327,20 +310,10 @@ public class AvrcpCoverArtManager {
     }
 
     /**
-     * Get a specific downloaded image if it exists
+     * Remote a specific downloaded image if it exists
      *
      * @param device The remote Bluetooth device associated with the image
-     * @param imageUuid The UUID associated with the image you wish to retrieve
-     */
-    public Bitmap getImage(BluetoothDevice device, String imageUuid) {
-        return mCoverArtStorage.getImage(device, imageUuid);
-    }
-
-    /**
-     * Remove a specific downloaded image if it exists
-     *
-     * @param device The remote Bluetooth device associated with the image
-     * @param imageUuid The UUID associated with the image you wish to remove
+     * @param imageHandle The handle associated with the image you wish to remove
      */
     public void removeImage(BluetoothDevice device, String imageUuid) {
         mCoverArtStorage.removeImage(device, imageUuid);
@@ -377,9 +350,6 @@ public class AvrcpCoverArtManager {
      * @return A descriptor containing the desirable download format
      */
     private BipImageDescriptor determineImageDescriptor(BipImageProperties properties) {
-        if (properties == null || !properties.isValid()) {
-            warn("Provided properties don't meet the spec. Requesting thumbnail format anyway.");
-        }
         BipImageDescriptor.Builder builder = new BipImageDescriptor.Builder();
         switch (mDownloadScheme) {
             // BIP Specification says a blank/null descriptor signals to pull the native format

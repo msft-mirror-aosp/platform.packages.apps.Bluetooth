@@ -18,8 +18,7 @@ package com.android.bluetooth.gatt;
 
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 
-import android.annotation.RequiresPermission;
-import android.annotation.SuppressLint;
+import android.annotation.Nullable;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
 import android.app.Service;
@@ -47,23 +46,17 @@ import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.companion.ICompanionDeviceManager;
-import android.content.AttributionSource;
 import android.content.Context;
 import android.content.Intent;
-import android.net.MacAddress;
 import android.os.Binder;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Message;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.os.WorkSource;
-import android.provider.DeviceConfig;
 import android.provider.Settings;
-import android.text.format.DateUtils;
 import android.util.Log;
 
 import com.android.bluetooth.BluetoothMetricsProto;
@@ -74,7 +67,6 @@ import com.android.bluetooth.btservice.AdapterService;
 import com.android.bluetooth.btservice.ProfileService;
 import com.android.bluetooth.util.NumberUtils;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.util.HexDump;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -87,7 +79,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
 
 /**
  * Provides Bluetooth Gatt profile, as a service in
@@ -98,8 +89,6 @@ public class GattService extends ProfileService {
     private static final boolean DBG = GattServiceConfig.DBG;
     private static final boolean VDBG = GattServiceConfig.VDBG;
     private static final String TAG = GattServiceConfig.TAG_PREFIX + "GattService";
-    private static final String UUID_SUFFIX = "-0000-1000-8000-00805f9b34fb";
-    private static final String UUID_ZERO_PAD = "00000000";
 
     static final int SCAN_FILTER_ENABLED = 1;
     static final int SCAN_FILTER_MODIFIED = 2;
@@ -108,11 +97,6 @@ public class GattService extends ProfileService {
     // Batch scan related constants.
     private static final int TRUNCATED_RESULT_SIZE = 11;
     private static final int TIME_STAMP_LENGTH = 2;
-
-    /**
-     * The default floor value for LE batch scan report delays greater than 0
-     */
-    private static final long DEFAULT_REPORT_DELAY_FLOOR = 5000;
 
     // onFoundLost related constants
     private static final int ADVT_STATE_ONFOUND = 0;
@@ -135,17 +119,6 @@ public class GattService extends ProfileService {
 
     private static final UUID FIDO_SERVICE_UUID =
             UUID.fromString("0000FFFD-0000-1000-8000-00805F9B34FB"); // U2F
-
-    /**
-     * Example raw beacons captured from a Blue Charm BC011
-     */
-    private static final String[] TEST_MODE_BEACONS = new String[] {
-            "020106",
-            "0201060303AAFE1716AAFE10EE01626C7565636861726D626561636F6E730009168020691E0EFE13551109426C7565436861726D5F313639363835000000",
-            "0201060303AAFE1716AAFE00EE626C7565636861726D31000000000001000009168020691E0EFE13551109426C7565436861726D5F313639363835000000",
-            "0201060303AAFE1116AAFE20000BF017000008874803FB93540916802069080EFE13551109426C7565436861726D5F313639363835000000000000000000",
-            "0201061AFF4C000215426C7565436861726D426561636F6E730EFE1355C509168020691E0EFE13551109426C7565436861726D5F31363936383500000000",
-    };
 
     /**
      * Keep the arguments passed in for the PendingIntent.
@@ -207,32 +180,13 @@ public class GattService extends ProfileService {
      */
     private final Map<Integer, Set<Integer>> mRestrictedHandles = new HashMap<>();
 
-    private AdapterService mAdapterService;
+    private BluetoothAdapter mAdapter;
     private AdvertiseManager mAdvertiseManager;
     private PeriodicScanManager mPeriodicScanManager;
     private ScanManager mScanManager;
     private AppOpsManager mAppOps;
     private ICompanionDeviceManager mCompanionManager;
     private String mExposureNotificationPackage;
-    private Handler mTestModeHandler;
-    private final Object mTestModeLock = new Object();
-
-    /**
-     */
-    private final Predicate<ScanResult> mLocationDenylistPredicate = (scanResult) -> {
-        final MacAddress parsedAddress = MacAddress
-                .fromString(scanResult.getDevice().getAddress());
-        if (mAdapterService.getLocationDenylistMac().test(parsedAddress.toByteArray())) {
-            Log.v(TAG, "Skipping device matching denylist: " + parsedAddress);
-            return true;
-        }
-        final ScanRecord scanRecord = scanResult.getScanRecord();
-        if (scanRecord.matchesAnyField(mAdapterService.getLocationDenylistAdvertisingData())) {
-            Log.v(TAG, "Skipping data matching denylist: " + scanRecord);
-            return true;
-        }
-        return false;
-    };
 
     private static GattService sGattService;
 
@@ -258,19 +212,18 @@ public class GattService extends ProfileService {
         mExposureNotificationPackage = getString(R.string.exposure_notification_package);
         Settings.Global.putInt(
                 getContentResolver(), "bluetooth_sanitized_exposure_notification_supported", 1);
-
         initializeNative();
-        mAdapterService = AdapterService.getAdapterService();
+        mAdapter = BluetoothAdapter.getDefaultAdapter();
         mCompanionManager = ICompanionDeviceManager.Stub.asInterface(
                 ServiceManager.getService(Context.COMPANION_DEVICE_SERVICE));
         mAppOps = getSystemService(AppOpsManager.class);
-        mAdvertiseManager = new AdvertiseManager(this, mAdapterService);
+        mAdvertiseManager = new AdvertiseManager(this, AdapterService.getAdapterService());
         mAdvertiseManager.start();
 
         mScanManager = new ScanManager(this);
         mScanManager.start();
 
-        mPeriodicScanManager = new PeriodicScanManager(mAdapterService);
+        mPeriodicScanManager = new PeriodicScanManager(AdapterService.getAdapterService());
         mPeriodicScanManager.start();
 
         setGattService(this);
@@ -317,38 +270,6 @@ public class GattService extends ProfileService {
         }
     }
 
-    // While test mode is enabled, pretend as if the underlying stack
-    // discovered a specific set of well-known beacons every second
-    @Override
-    protected void setTestModeEnabled(boolean enableTestMode) {
-        synchronized (mTestModeLock) {
-            if (mTestModeHandler == null) {
-                mTestModeHandler = new Handler(getMainLooper()) {
-                    public void handleMessage(Message msg) {
-                        synchronized (mTestModeLock) {
-                            if (!GattService.this.isTestModeEnabled()) {
-                                return;
-                            }
-                            for (String test : TEST_MODE_BEACONS) {
-                                onScanResultInternal(0x1b, 0x1, "DD:34:02:05:5C:4D", 1, 0, 0xff,
-                                        127, -54, 0x0, HexDump.hexStringToByteArray(test));
-                            }
-                            sendEmptyMessageDelayed(0, DateUtils.SECOND_IN_MILLIS);
-                        }
-                    }
-                };
-            }
-            if (enableTestMode && !isTestModeEnabled()) {
-                super.setTestModeEnabled(true);
-                mTestModeHandler.removeMessages(0);
-                mTestModeHandler.sendEmptyMessageDelayed(0, DateUtils.SECOND_IN_MILLIS);
-            } else if (!enableTestMode && isTestModeEnabled()) {
-                super.setTestModeEnabled(false);
-                mTestModeHandler.removeMessages(0);
-                mTestModeHandler.sendEmptyMessage(0);
-            }
-        }
-    }
 
     /**
      * Get the current instance of {@link GattService}
@@ -375,16 +296,12 @@ public class GattService extends ProfileService {
         sGattService = instance;
     }
 
-    // Suppressed since we're not actually enforcing here
-    @SuppressLint("AndroidFrameworkRequiresPermission")
     private boolean permissionCheck(UUID characteristicUuid) {
         return !isHidCharUuid(characteristicUuid)
                 || (checkCallingOrSelfPermission(BLUETOOTH_PRIVILEGED)
                         == PERMISSION_GRANTED);
     }
 
-    // Suppressed since we're not actually enforcing here
-    @SuppressLint("AndroidFrameworkRequiresPermission")
     private boolean permissionCheck(int connId, int handle) {
         Set<Integer> restrictedHandles = mRestrictedHandles.get(connId);
         if (restrictedHandles == null || !restrictedHandles.contains(handle)) {
@@ -395,8 +312,6 @@ public class GattService extends ProfileService {
                 == PERMISSION_GRANTED);
     }
 
-    // Suppressed since we're not actually enforcing here
-    @SuppressLint("AndroidFrameworkRequiresPermission")
     private boolean permissionCheck(ClientMap.App app, int connId, int handle) {
         Set<Integer> restrictedHandles = mRestrictedHandles.get(connId);
         if (restrictedHandles == null || !restrictedHandles.contains(handle)) {
@@ -440,7 +355,7 @@ public class GattService extends ProfileService {
             ScanClient client = getScanClient(mScannerId);
             if (client != null) {
                 client.appDied = true;
-                stopScan(client.scannerId, getAttributionSource());
+                stopScan(client.scannerId);
             }
         }
 
@@ -471,7 +386,7 @@ public class GattService extends ProfileService {
             if (DBG) {
                 Log.d(TAG, "Binder is dead - unregistering server (" + mAppIf + ")!");
             }
-            unregisterServer(mAppIf, getAttributionSource());
+            unregisterServer(mAppIf);
         }
     }
 
@@ -487,7 +402,7 @@ public class GattService extends ProfileService {
             if (DBG) {
                 Log.d(TAG, "Binder is dead - unregistering client (" + mAppIf + ")!");
             }
-            unregisterClient(mAppIf, getAttributionSource());
+            unregisterClient(mAppIf);
         }
     }
 
@@ -516,562 +431,531 @@ public class GattService extends ProfileService {
         }
 
         @Override
-        public List<BluetoothDevice> getDevicesMatchingConnectionStates(
-                int[] states, AttributionSource attributionSource) {
+        public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
             GattService service = getService();
             if (service == null) {
                 return new ArrayList<BluetoothDevice>();
             }
-            return service.getDevicesMatchingConnectionStates(states, attributionSource);
+            return service.getDevicesMatchingConnectionStates(states);
         }
 
         @Override
-        public void registerClient(ParcelUuid uuid, IBluetoothGattCallback callback,
-                boolean eatt_support, AttributionSource attributionSource) {
+        public void registerClient(ParcelUuid uuid, IBluetoothGattCallback callback) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.registerClient(uuid.getUuid(), callback, eatt_support, attributionSource);
+            service.registerClient(uuid.getUuid(), callback);
         }
 
         @Override
-        public void unregisterClient(int clientIf, AttributionSource attributionSource) {
+        public void unregisterClient(int clientIf) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.unregisterClient(clientIf, attributionSource);
+            service.unregisterClient(clientIf);
         }
 
         @Override
-        public void registerScanner(IScannerCallback callback, WorkSource workSource,
-                AttributionSource attributionSource) throws RemoteException {
+        public void registerScanner(IScannerCallback callback, WorkSource workSource)
+                throws RemoteException {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.registerScanner(callback, workSource, attributionSource);
+            service.registerScanner(callback, workSource);
         }
 
         @Override
-        public void unregisterScanner(int scannerId, AttributionSource attributionSource) {
+        public void unregisterScanner(int scannerId) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.unregisterScanner(scannerId, attributionSource);
+            service.unregisterScanner(scannerId);
         }
 
         @Override
         public void startScan(int scannerId, ScanSettings settings, List<ScanFilter> filters,
-                List storages, AttributionSource attributionSource) {
+                List storages, String callingPackage, String callingFeatureId) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.startScan(scannerId, settings, filters, storages, attributionSource);
+            service.startScan(scannerId, settings, filters, storages, callingPackage,
+                    callingFeatureId);
         }
 
         @Override
         public void startScanForIntent(PendingIntent intent, ScanSettings settings,
-                List<ScanFilter> filters, AttributionSource attributionSource)
+                List<ScanFilter> filters, String callingPackage, String callingFeatureId)
                 throws RemoteException {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.registerPiAndStartScan(intent, settings, filters, attributionSource);
+            service.registerPiAndStartScan(intent, settings, filters, callingPackage,
+                    callingFeatureId);
         }
 
         @Override
-        public void stopScanForIntent(PendingIntent intent, AttributionSource attributionSource)
+        public void stopScanForIntent(PendingIntent intent, String callingPackage)
                 throws RemoteException {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.stopScan(intent, attributionSource);
+            service.stopScan(intent, callingPackage);
         }
 
         @Override
-        public void stopScan(int scannerId, AttributionSource attributionSource) {
+        public void stopScan(int scannerId) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.stopScan(scannerId, attributionSource);
+            service.stopScan(scannerId);
         }
 
         @Override
-        public void flushPendingBatchResults(int scannerId, AttributionSource attributionSource) {
+        public void flushPendingBatchResults(int scannerId) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.flushPendingBatchResults(scannerId, attributionSource);
+            service.flushPendingBatchResults(scannerId);
         }
 
         @Override
         public void clientConnect(int clientIf, String address, boolean isDirect, int transport,
-                boolean opportunistic, int phy, AttributionSource attributionSource) {
+                boolean opportunistic, int phy) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.clientConnect(clientIf, address, isDirect, transport, opportunistic, phy,
-                    attributionSource);
+            service.clientConnect(clientIf, address, isDirect, transport, opportunistic, phy);
         }
 
         @Override
-        public void clientDisconnect(
-                int clientIf, String address, AttributionSource attributionSource) {
+        public void clientDisconnect(int clientIf, String address) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.clientDisconnect(clientIf, address, attributionSource);
+            service.clientDisconnect(clientIf, address);
         }
 
         @Override
         public void clientSetPreferredPhy(int clientIf, String address, int txPhy, int rxPhy,
-                int phyOptions, AttributionSource attributionSource) {
+                int phyOptions) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.clientSetPreferredPhy(clientIf, address, txPhy, rxPhy, phyOptions,
-                    attributionSource);
+            service.clientSetPreferredPhy(clientIf, address, txPhy, rxPhy, phyOptions);
         }
 
         @Override
-        public void clientReadPhy(
-                int clientIf, String address, AttributionSource attributionSource) {
+        public void clientReadPhy(int clientIf, String address) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.clientReadPhy(clientIf, address, attributionSource);
+            service.clientReadPhy(clientIf, address);
         }
 
         @Override
-        public void refreshDevice(
-                int clientIf, String address, AttributionSource attributionSource) {
+        public void refreshDevice(int clientIf, String address) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.refreshDevice(clientIf, address, attributionSource);
+            service.refreshDevice(clientIf, address);
         }
 
         @Override
-        public void discoverServices(
-                int clientIf, String address, AttributionSource attributionSource) {
+        public void discoverServices(int clientIf, String address) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.discoverServices(clientIf, address, attributionSource);
+            service.discoverServices(clientIf, address);
         }
 
         @Override
-        public void discoverServiceByUuid(int clientIf, String address, ParcelUuid uuid,
-                AttributionSource attributionSource) {
+        public void discoverServiceByUuid(int clientIf, String address, ParcelUuid uuid) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.discoverServiceByUuid(clientIf, address, uuid.getUuid(), attributionSource);
+            service.discoverServiceByUuid(clientIf, address, uuid.getUuid());
         }
 
         @Override
-        public void readCharacteristic(int clientIf, String address, int handle, int authReq,
-                AttributionSource attributionSource) {
+        public void readCharacteristic(int clientIf, String address, int handle, int authReq) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.readCharacteristic(clientIf, address, handle, authReq, attributionSource);
+            service.readCharacteristic(clientIf, address, handle, authReq);
         }
 
         @Override
         public void readUsingCharacteristicUuid(int clientIf, String address, ParcelUuid uuid,
-                int startHandle, int endHandle, int authReq, AttributionSource attributionSource) {
+                int startHandle, int endHandle, int authReq) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
             service.readUsingCharacteristicUuid(clientIf, address, uuid.getUuid(), startHandle,
-                    endHandle, authReq, attributionSource);
+                    endHandle, authReq);
         }
 
         @Override
         public void writeCharacteristic(int clientIf, String address, int handle, int writeType,
-                int authReq, byte[] value, AttributionSource attributionSource) {
+                int authReq, byte[] value) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.writeCharacteristic(clientIf, address, handle, writeType, authReq, value,
-                    attributionSource);
+            service.writeCharacteristic(clientIf, address, handle, writeType, authReq, value);
         }
 
         @Override
-        public void readDescriptor(int clientIf, String address, int handle, int authReq,
-                AttributionSource attributionSource) {
+        public void readDescriptor(int clientIf, String address, int handle, int authReq) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.readDescriptor(clientIf, address, handle, authReq, attributionSource);
+            service.readDescriptor(clientIf, address, handle, authReq);
         }
 
         @Override
         public void writeDescriptor(int clientIf, String address, int handle, int authReq,
-                byte[] value, AttributionSource attributionSource) {
+                byte[] value) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.writeDescriptor(clientIf, address, handle, authReq, value, attributionSource);
+            service.writeDescriptor(clientIf, address, handle, authReq, value);
         }
 
         @Override
-        public void beginReliableWrite(
-                int clientIf, String address, AttributionSource attributionSource) {
+        public void beginReliableWrite(int clientIf, String address) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.beginReliableWrite(clientIf, address, attributionSource);
+            service.beginReliableWrite(clientIf, address);
         }
 
         @Override
-        public void endReliableWrite(int clientIf, String address, boolean execute,
-                AttributionSource attributionSource) {
+        public void endReliableWrite(int clientIf, String address, boolean execute) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.endReliableWrite(clientIf, address, execute, attributionSource);
+            service.endReliableWrite(clientIf, address, execute);
         }
 
         @Override
         public void registerForNotification(int clientIf, String address, int handle,
-                boolean enable, AttributionSource attributionSource) {
+                boolean enable) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.registerForNotification(clientIf, address, handle, enable, attributionSource);
+            service.registerForNotification(clientIf, address, handle, enable);
         }
 
         @Override
-        public void readRemoteRssi(
-                int clientIf, String address, AttributionSource attributionSource) {
+        public void readRemoteRssi(int clientIf, String address) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.readRemoteRssi(clientIf, address, attributionSource);
+            service.readRemoteRssi(clientIf, address);
         }
 
         @Override
-        public void configureMTU(
-                int clientIf, String address, int mtu, AttributionSource attributionSource) {
+        public void configureMTU(int clientIf, String address, int mtu) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.configureMTU(clientIf, address, mtu, attributionSource);
+            service.configureMTU(clientIf, address, mtu);
         }
 
         @Override
         public void connectionParameterUpdate(int clientIf, String address,
-                int connectionPriority, AttributionSource attributionSource) {
+                int connectionPriority) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.connectionParameterUpdate(
-                    clientIf, address, connectionPriority, attributionSource);
+            service.connectionParameterUpdate(clientIf, address, connectionPriority);
         }
 
         @Override
         public void leConnectionUpdate(int clientIf, String address,
                 int minConnectionInterval, int maxConnectionInterval,
-                int peripheralLatency, int supervisionTimeout,
-                int minConnectionEventLen, int maxConnectionEventLen,
-                AttributionSource attributionSource) {
+                int slaveLatency, int supervisionTimeout,
+                int minConnectionEventLen, int maxConnectionEventLen) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
             service.leConnectionUpdate(clientIf, address, minConnectionInterval,
-                                       maxConnectionInterval, peripheralLatency,
+                                       maxConnectionInterval, slaveLatency,
                                        supervisionTimeout, minConnectionEventLen,
-                                       maxConnectionEventLen, attributionSource);
+                                       maxConnectionEventLen);
         }
 
         @Override
-        public void registerServer(ParcelUuid uuid, IBluetoothGattServerCallback callback,
-                boolean eatt_support, AttributionSource attributionSource) {
+        public void registerServer(ParcelUuid uuid, IBluetoothGattServerCallback callback) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.registerServer(uuid.getUuid(), callback, eatt_support, attributionSource);
+            service.registerServer(uuid.getUuid(), callback);
         }
 
         @Override
-        public void unregisterServer(int serverIf, AttributionSource attributionSource) {
+        public void unregisterServer(int serverIf) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.unregisterServer(serverIf, attributionSource);
+            service.unregisterServer(serverIf);
         }
 
         @Override
-        public void serverConnect(int serverIf, String address, boolean isDirect, int transport,
-                AttributionSource attributionSource) {
+        public void serverConnect(int serverIf, String address, boolean isDirect, int transport) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.serverConnect(serverIf, address, isDirect, transport, attributionSource);
+            service.serverConnect(serverIf, address, isDirect, transport);
         }
 
         @Override
-        public void serverDisconnect(
-                int serverIf, String address, AttributionSource attributionSource) {
+        public void serverDisconnect(int serverIf, String address) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.serverDisconnect(serverIf, address, attributionSource);
+            service.serverDisconnect(serverIf, address);
         }
 
         @Override
         public void serverSetPreferredPhy(int serverIf, String address, int txPhy, int rxPhy,
-                int phyOptions, AttributionSource attributionSource) {
+                int phyOptions) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.serverSetPreferredPhy(
-                    serverIf, address, txPhy, rxPhy, phyOptions, attributionSource);
+            service.serverSetPreferredPhy(serverIf, address, txPhy, rxPhy, phyOptions);
         }
 
         @Override
-        public void serverReadPhy(
-                int clientIf, String address, AttributionSource attributionSource) {
+        public void serverReadPhy(int clientIf, String address) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.serverReadPhy(clientIf, address, attributionSource);
+            service.serverReadPhy(clientIf, address);
         }
 
         @Override
-        public void addService(
-                int serverIf, BluetoothGattService svc, AttributionSource attributionSource) {
+        public void addService(int serverIf, BluetoothGattService svc) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
 
-            service.addService(serverIf, svc, attributionSource);
+            service.addService(serverIf, svc);
         }
 
         @Override
-        public void removeService(int serverIf, int handle, AttributionSource attributionSource) {
+        public void removeService(int serverIf, int handle) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.removeService(serverIf, handle, attributionSource);
+            service.removeService(serverIf, handle);
         }
 
         @Override
-        public void clearServices(int serverIf, AttributionSource attributionSource) {
+        public void clearServices(int serverIf) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.clearServices(serverIf, attributionSource);
+            service.clearServices(serverIf);
         }
 
         @Override
         public void sendResponse(int serverIf, String address, int requestId, int status,
-                int offset, byte[] value, AttributionSource attributionSource) {
+                int offset, byte[] value) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.sendResponse(
-                    serverIf, address, requestId, status, offset, value, attributionSource);
+            service.sendResponse(serverIf, address, requestId, status, offset, value);
         }
 
         @Override
         public void sendNotification(int serverIf, String address, int handle, boolean confirm,
-                byte[] value, AttributionSource attributionSource) {
+                byte[] value) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.sendNotification(serverIf, address, handle, confirm, value, attributionSource);
+            service.sendNotification(serverIf, address, handle, confirm, value);
         }
 
         @Override
         public void startAdvertisingSet(AdvertisingSetParameters parameters,
                 AdvertiseData advertiseData, AdvertiseData scanResponse,
                 PeriodicAdvertisingParameters periodicParameters, AdvertiseData periodicData,
-                int duration, int maxExtAdvEvents, IAdvertisingSetCallback callback,
-                AttributionSource attributionSource) {
+                int duration, int maxExtAdvEvents, IAdvertisingSetCallback callback) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
             service.startAdvertisingSet(parameters, advertiseData, scanResponse, periodicParameters,
-                    periodicData, duration, maxExtAdvEvents, callback, attributionSource);
+                    periodicData, duration, maxExtAdvEvents, callback);
         }
 
         @Override
-        public void stopAdvertisingSet(
-                IAdvertisingSetCallback callback, AttributionSource attributionSource) {
+        public void stopAdvertisingSet(IAdvertisingSetCallback callback) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.stopAdvertisingSet(callback, attributionSource);
+            service.stopAdvertisingSet(callback);
         }
 
         @Override
-        public void getOwnAddress(int advertiserId, AttributionSource attributionSource) {
+        public void getOwnAddress(int advertiserId) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.getOwnAddress(advertiserId, attributionSource);
+            service.getOwnAddress(advertiserId);
         }
 
         @Override
         public void enableAdvertisingSet(int advertiserId, boolean enable, int duration,
-                int maxExtAdvEvents, AttributionSource attributionSource) {
+                int maxExtAdvEvents) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.enableAdvertisingSet(
-                    advertiserId, enable, duration, maxExtAdvEvents, attributionSource);
+            service.enableAdvertisingSet(advertiserId, enable, duration, maxExtAdvEvents);
         }
 
         @Override
-        public void setAdvertisingData(
-                int advertiserId, AdvertiseData data, AttributionSource attributionSource) {
+        public void setAdvertisingData(int advertiserId, AdvertiseData data) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.setAdvertisingData(advertiserId, data, attributionSource);
+            service.setAdvertisingData(advertiserId, data);
         }
 
         @Override
-        public void setScanResponseData(
-                int advertiserId, AdvertiseData data, AttributionSource attributionSource) {
+        public void setScanResponseData(int advertiserId, AdvertiseData data) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.setScanResponseData(advertiserId, data, attributionSource);
+            service.setScanResponseData(advertiserId, data);
         }
 
         @Override
         public void setAdvertisingParameters(int advertiserId,
-                AdvertisingSetParameters parameters, AttributionSource attributionSource) {
+                AdvertisingSetParameters parameters) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.setAdvertisingParameters(advertiserId, parameters, attributionSource);
+            service.setAdvertisingParameters(advertiserId, parameters);
         }
 
         @Override
         public void setPeriodicAdvertisingParameters(int advertiserId,
-                PeriodicAdvertisingParameters parameters, AttributionSource attributionSource) {
+                PeriodicAdvertisingParameters parameters) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.setPeriodicAdvertisingParameters(advertiserId, parameters, attributionSource);
+            service.setPeriodicAdvertisingParameters(advertiserId, parameters);
         }
 
         @Override
-        public void setPeriodicAdvertisingData(int advertiserId, AdvertiseData data,
-                AttributionSource attributionSource) {
+        public void setPeriodicAdvertisingData(int advertiserId, AdvertiseData data) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.setPeriodicAdvertisingData(advertiserId, data, attributionSource);
+            service.setPeriodicAdvertisingData(advertiserId, data);
         }
 
         @Override
-        public void setPeriodicAdvertisingEnable(
-                int advertiserId, boolean enable, AttributionSource attributionSource) {
+        public void setPeriodicAdvertisingEnable(int advertiserId, boolean enable) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.setPeriodicAdvertisingEnable(advertiserId, enable, attributionSource);
+            service.setPeriodicAdvertisingEnable(advertiserId, enable);
         }
 
         @Override
         public void registerSync(ScanResult scanResult, int skip, int timeout,
-                IPeriodicAdvertisingCallback callback, AttributionSource attributionSource) {
+                IPeriodicAdvertisingCallback callback) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.registerSync(scanResult, skip, timeout, callback, attributionSource);
+            service.registerSync(scanResult, skip, timeout, callback);
         }
 
         @Override
-        public void unregisterSync(
-                IPeriodicAdvertisingCallback callback, AttributionSource attributionSource) {
+        public void unregisterSync(IPeriodicAdvertisingCallback callback) {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.unregisterSync(callback, attributionSource);
+            service.unregisterSync(callback);
         }
 
         @Override
-        public void disconnectAll(AttributionSource attributionSource) {
+        public void disconnectAll() {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.disconnectAll(attributionSource);
+            service.disconnectAll();
         }
 
         @Override
-        public void unregAll(AttributionSource attributionSource) {
+        public void unregAll() {
             GattService service = getService();
             if (service == null) {
                 return;
             }
-            service.unregAll(attributionSource);
+            service.unregAll();
         }
 
         @Override
-        public int numHwTrackFiltersAvailable(AttributionSource attributionSource) {
+        public int numHwTrackFiltersAvailable() {
             GattService service = getService();
             if (service == null) {
                 return 0;
             }
-            return service.numHwTrackFiltersAvailable(attributionSource);
+            return service.numHwTrackFiltersAvailable();
         }
     }
 
@@ -1134,16 +1018,6 @@ public class GattService extends ProfileService {
     void onScanResult(int eventType, int addressType, String address, int primaryPhy,
             int secondaryPhy, int advertisingSid, int txPower, int rssi, int periodicAdvInt,
             byte[] advData) {
-        // When in testing mode, ignore all real-world events
-        if (isTestModeEnabled()) return;
-
-        onScanResultInternal(eventType, addressType, address, primaryPhy, secondaryPhy,
-                advertisingSid, txPower, rssi, periodicAdvInt, advData);
-    }
-
-    void onScanResultInternal(int eventType, int addressType, String address, int primaryPhy,
-            int secondaryPhy, int advertisingSid, int txPower, int rssi, int periodicAdvInt,
-            byte[] advData) {
         if (VDBG) {
             Log.d(TAG, "onScanResult() - eventType=0x" + Integer.toHexString(eventType)
                     + ", addressType=" + addressType + ", address=" + address + ", primaryPhy="
@@ -1151,16 +1025,33 @@ public class GattService extends ProfileService {
                     + Integer.toHexString(advertisingSid) + ", txPower=" + txPower + ", rssi="
                     + rssi + ", periodicAdvInt=0x" + Integer.toHexString(periodicAdvInt));
         }
+        List<UUID> remoteUuids = parseUuids(advData);
 
         byte[] legacyAdvData = Arrays.copyOfRange(advData, 0, 62);
 
         for (ScanClient client : mScanManager.getRegularScanQueue()) {
+            if (client.uuids.length > 0) {
+                int matches = 0;
+                for (UUID search : client.uuids) {
+                    for (UUID remote : remoteUuids) {
+                        if (remote.equals(search)) {
+                            ++matches;
+                            break; // Only count 1st match in case of duplicates
+                        }
+                    }
+                }
+
+                if (matches < client.uuids.length) {
+                    continue;
+                }
+            }
+
             ScannerMap.App app = mScannerMap.getById(client.scannerId);
             if (app == null) {
                 continue;
             }
 
-            BluetoothDevice device = getAnonymousDevice(address);
+            BluetoothDevice device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(address);
 
             ScanSettings settings = client.settings;
             byte[] scanRecordData;
@@ -1177,18 +1068,11 @@ public class GattService extends ProfileService {
                 scanRecordData = advData;
             }
 
-            ScanRecord scanRecord = ScanRecord.parseFromBytes(scanRecordData);
             ScanResult result =
                     new ScanResult(device, eventType, primaryPhy, secondaryPhy, advertisingSid,
-                            txPower, rssi, periodicAdvInt, scanRecord,
+                            txPower, rssi, periodicAdvInt,
+                            ScanRecord.parseFromBytes(scanRecordData),
                             SystemClock.elapsedRealtimeNanos());
-
-            if (client.hasDisavowedLocation) {
-                if (mLocationDenylistPredicate.test(result)) {
-                    continue;
-                }
-            }
-
             boolean hasPermission = hasScanResultPermission(client);
             if (!hasPermission) {
                 for (String associatedDevice : client.associatedDevices) {
@@ -1239,13 +1123,8 @@ public class GattService extends ProfileService {
         try {
             sendResultsByPendingIntent(pii, results, callbackType);
         } catch (PendingIntent.CanceledException e) {
-            final long token = Binder.clearCallingIdentity();
-            try {
-                stopScan(client.scannerId, getAttributionSource());
-                unregisterScanner(client.scannerId, getAttributionSource());
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
+            stopScan(client.scannerId);
+            unregisterScanner(client.scannerId);
         }
     }
 
@@ -1299,9 +1178,6 @@ public class GattService extends ProfileService {
         if (client.hasNetworkSettingsPermission
                 || client.hasNetworkSetupWizardPermission
                 || client.hasScanWithoutLocationPermission) {
-            return true;
-        }
-        if (client.hasDisavowedLocation) {
             return true;
         }
         return client.hasLocationPermission && !Utils.blockedByLocationOff(this, client.userHandle);
@@ -1426,24 +1302,6 @@ public class GattService extends ProfileService {
         }
 
         app.callback.onConnectionUpdated(address, interval, latency, timeout, status);
-    }
-
-    void onServiceChanged(int connId) throws RemoteException {
-        if (DBG) {
-            Log.d(TAG, "onServiceChanged - connId=" + connId);
-        }
-
-        String address = mClientMap.addressByConnId(connId);
-        if (address == null) {
-            return;
-        }
-
-        ClientMap.App app = mClientMap.getByConnId(connId);
-        if (app == null) {
-            return;
-        }
-
-        app.callback.onServiceChanged(address);
     }
 
     void onServerPhyUpdate(int connId, int txPhy, int rxPhy, int status) throws RemoteException {
@@ -1786,14 +1644,6 @@ public class GattService extends ProfileService {
 
     void onBatchScanReports(int status, int scannerId, int reportType, int numRecords,
             byte[] recordData) throws RemoteException {
-        // When in testing mode, ignore all real-world events
-        if (isTestModeEnabled()) return;
-
-        onBatchScanReportsInternal(status, scannerId, reportType, numRecords, recordData);
-    }
-
-    void onBatchScanReportsInternal(int status, int scannerId, int reportType, int numRecords,
-            byte[] recordData) throws RemoteException {
         if (DBG) {
             Log.d(TAG, "onBatchScanReports() - scannerId=" + scannerId + ", status=" + status
                     + ", reportType=" + reportType + ", numRecords=" + numRecords);
@@ -1828,10 +1678,6 @@ public class GattService extends ProfileService {
                 if (permittedResults.isEmpty()) {
                     return;
                 }
-            }
-
-            if (client.hasDisavowedLocation) {
-                permittedResults.removeIf(mLocationDenylistPredicate);
             }
 
             if (app.callback != null) {
@@ -1933,7 +1779,7 @@ public class GattService extends ProfileService {
                     extractBytes(batchRecord, i * TRUNCATED_RESULT_SIZE, TRUNCATED_RESULT_SIZE);
             byte[] address = extractBytes(record, 0, 6);
             reverse(address);
-            BluetoothDevice device = getAnonymousDevice(address);
+            BluetoothDevice device = mAdapter.getRemoteDevice(address);
             int rssi = record[8];
             long timestampNanos = now - parseTimestampNanos(extractBytes(record, 9, 2));
             results.add(new ScanResult(device, ScanRecord.parseFromBytes(new byte[0]), rssi,
@@ -1960,7 +1806,7 @@ public class GattService extends ProfileService {
             byte[] address = extractBytes(batchRecord, position, 6);
             // TODO: remove temp hack.
             reverse(address);
-            BluetoothDevice device = getAnonymousDevice(address);
+            BluetoothDevice device = mAdapter.getRemoteDevice(address);
             position += 6;
             // Skip address type.
             position++;
@@ -2007,12 +1853,11 @@ public class GattService extends ProfileService {
         return bytes;
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
     void onBatchScanThresholdCrossed(int clientIf) {
         if (DBG) {
             Log.d(TAG, "onBatchScanThresholdCrossed() - clientIf=" + clientIf);
         }
-        flushPendingBatchResults(clientIf, getAttributionSource());
+        flushPendingBatchResults(clientIf);
     }
 
     AdvtFilterOnFoundOnLostInfo createOnTrackAdvFoundLostObject(int clientIf, int advPktLen,
@@ -2038,7 +1883,8 @@ public class GattService extends ProfileService {
             return;
         }
 
-        BluetoothDevice device = getAnonymousDevice(trackingInfo.getAddress());
+        BluetoothDevice device =
+                BluetoothAdapter.getDefaultAdapter().getRemoteDevice(trackingInfo.getAddress());
         int advertiserState = trackingInfo.getAdvState();
         ScanResult result =
                 new ScanResult(device, ScanRecord.parseFromBytes(trackingInfo.getResult()),
@@ -2143,20 +1989,14 @@ public class GattService extends ProfileService {
      * GATT Service functions - Shared CLIENT/SERVER
      *************************************************************************/
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    List<BluetoothDevice> getDevicesMatchingConnectionStates(
-            int[] states, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource,
-                "GattService getDevicesMatchingConnectionStates")) {
-            return new ArrayList<>(0);
-        }
+    List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Map<BluetoothDevice, Integer> deviceStates = new HashMap<BluetoothDevice, Integer>();
 
         // Add paired LE devices
 
-        BluetoothDevice[] bondedDevices = mAdapterService.getBondedDevices();
+        Set<BluetoothDevice> bondedDevices = mAdapter.getBondedDevices();
         for (BluetoothDevice device : bondedDevices) {
             if (getDeviceType(device) != AbstractionLayer.BT_DEVICE_TYPE_BREDR) {
                 deviceStates.put(device, BluetoothProfile.STATE_DISCONNECTED);
@@ -2170,7 +2010,7 @@ public class GattService extends ProfileService {
         connectedDevices.addAll(mServerMap.getConnectedDevices());
 
         for (String address : connectedDevices) {
-            BluetoothDevice device = getAnonymousDevice(address);
+            BluetoothDevice device = mAdapter.getRemoteDevice(address);
             if (device != null) {
                 deviceStates.put(device, BluetoothProfile.STATE_CONNECTED);
             }
@@ -2191,24 +2031,21 @@ public class GattService extends ProfileService {
         return deviceList;
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
-    void registerScanner(IScannerCallback callback, WorkSource workSource,
-            AttributionSource attributionSource) throws RemoteException {
-        if (!Utils.checkScanPermissionForDataDelivery(
-                this, attributionSource, "GattService registerScanner")) {
-            return;
-        }
+    void registerScanner(IScannerCallback callback, WorkSource workSource) throws RemoteException {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         UUID uuid = UUID.randomUUID();
         if (DBG) {
             Log.d(TAG, "registerScanner() - UUID=" + uuid);
         }
 
-        enforceImpersonatationPermissionIfNeeded(workSource);
+        if (workSource != null) {
+            enforceImpersonatationPermission();
+        }
 
         AppScanStats app = mScannerMap.getAppScanStatsByUid(Binder.getCallingUid());
         if (app != null && app.isScanningTooFrequently()
-                && !Utils.checkCallerHasPrivilegedPermission(this)) {
+                && checkCallingOrSelfPermission(BLUETOOTH_PRIVILEGED) != PERMISSION_GRANTED) {
             Log.e(TAG, "App '" + app.appName + "' is scanning too frequently");
             callback.onScannerRegistered(ScanCallback.SCAN_FAILED_SCANNING_TOO_FREQUENTLY, -1);
             return;
@@ -2218,12 +2055,8 @@ public class GattService extends ProfileService {
         mScanManager.registerScanner(uuid);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
-    void unregisterScanner(int scannerId, AttributionSource attributionSource) {
-        if (!Utils.checkScanPermissionForDataDelivery(
-                this, attributionSource, "GattService unregisterScanner")) {
-            return;
-        }
+    void unregisterScanner(int scannerId) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "unregisterScanner() - scannerId=" + scannerId);
@@ -2252,40 +2085,29 @@ public class GattService extends ProfileService {
         return new ArrayList<String>();
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
     void startScan(int scannerId, ScanSettings settings, List<ScanFilter> filters,
-            List<List<ResultStorageDescriptor>> storages, AttributionSource attributionSource) {
+            List<List<ResultStorageDescriptor>> storages, String callingPackage,
+            @Nullable String callingFeatureId) {
         if (DBG) {
             Log.d(TAG, "start scan with filters");
         }
-
-        if (!Utils.checkScanPermissionForDataDelivery(
-                this, attributionSource, "Starting GATT scan.")) {
-            return;
+        UserHandle callingUser = UserHandle.of(UserHandle.getCallingUserId());
+        enforceAdminPermission();
+        if (needsPrivilegedPermissionForScan(settings)) {
+            enforcePrivilegedPermission();
         }
-
-        enforcePrivilegedPermissionIfNeeded(settings);
-        String callingPackage = attributionSource.getPackageName();
-        settings = enforceReportDelayFloor(settings);
-        enforcePrivilegedPermissionIfNeeded(filters);
         final ScanClient scanClient = new ScanClient(scannerId, settings, filters, storages);
         scanClient.userHandle = UserHandle.of(UserHandle.getCallingUserId());
         mAppOps.checkPackage(Binder.getCallingUid(), callingPackage);
         scanClient.eligibleForSanitizedExposureNotification =
                 callingPackage.equals(mExposureNotificationPackage);
-
-        scanClient.hasDisavowedLocation =
-                Utils.hasDisavowedLocationForScan(this, attributionSource, isTestModeEnabled());
-
         scanClient.isQApp = Utils.isQApp(this, callingPackage);
-        if (!scanClient.hasDisavowedLocation) {
-            if (scanClient.isQApp) {
-                scanClient.hasLocationPermission = Utils.checkCallerHasFineLocation(
-                        this, attributionSource, scanClient.userHandle);
-            } else {
-                scanClient.hasLocationPermission = Utils.checkCallerHasCoarseOrFineLocation(
-                        this, attributionSource, scanClient.userHandle);
-            }
+        if (scanClient.isQApp) {
+            scanClient.hasLocationPermission = Utils.checkCallerHasFineLocation(this, mAppOps,
+                    callingPackage, callingFeatureId, scanClient.userHandle);
+        } else {
+            scanClient.hasLocationPermission = Utils.checkCallerHasCoarseOrFineLocation(this,
+                    mAppOps, callingPackage, callingFeatureId, scanClient.userHandle);
         }
         scanClient.hasNetworkSettingsPermission =
                 Utils.checkCallerHasNetworkSettingsPermission(this);
@@ -2310,25 +2132,20 @@ public class GattService extends ProfileService {
         mScanManager.startScan(scanClient);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
     void registerPiAndStartScan(PendingIntent pendingIntent, ScanSettings settings,
-            List<ScanFilter> filters, AttributionSource attributionSource) {
+            List<ScanFilter> filters, String callingPackage, @Nullable String callingFeatureId) {
         if (DBG) {
             Log.d(TAG, "start scan with filters, for PendingIntent");
         }
-
-        if (!Utils.checkScanPermissionForDataDelivery(
-                this, attributionSource, "Starting GATT scan.")) {
-            return;
+        enforceAdminPermission();
+        if (needsPrivilegedPermissionForScan(settings)) {
+            enforcePrivilegedPermission();
         }
-        enforcePrivilegedPermissionIfNeeded(settings);
-        settings = enforceReportDelayFloor(settings);
-        enforcePrivilegedPermissionIfNeeded(filters);
+
         UUID uuid = UUID.randomUUID();
         if (DBG) {
             Log.d(TAG, "startScan(PI) - UUID=" + uuid);
         }
-        String callingPackage = attributionSource.getPackageName();
         PendingIntentInfo piInfo = new PendingIntentInfo();
         piInfo.intent = pendingIntent;
         piInfo.settings = settings;
@@ -2346,24 +2163,18 @@ public class GattService extends ProfileService {
         mAppOps.checkPackage(Binder.getCallingUid(), callingPackage);
         app.mEligibleForSanitizedExposureNotification =
                 callingPackage.equals(mExposureNotificationPackage);
-
-        app.mHasDisavowedLocation =
-                Utils.hasDisavowedLocationForScan(this, attributionSource, isTestModeEnabled());
-
         app.mIsQApp = Utils.isQApp(this, callingPackage);
-        if (!app.mHasDisavowedLocation) {
-            try {
-                if (app.mIsQApp) {
-                    app.hasLocationPermission = Utils.checkCallerHasFineLocation(
-                            this, attributionSource, app.mUserHandle);
-                } else {
-                    app.hasLocationPermission = Utils.checkCallerHasCoarseOrFineLocation(
-                            this, attributionSource, app.mUserHandle);
-                }
-            } catch (SecurityException se) {
-                // No need to throw here. Just mark as not granted.
-                app.hasLocationPermission = false;
+        try {
+            if (app.mIsQApp) {
+                app.hasLocationPermission = Utils.checkCallerHasFineLocation(
+                      this, mAppOps, callingPackage, callingFeatureId, app.mUserHandle);
+            } else {
+                app.hasLocationPermission = Utils.checkCallerHasCoarseOrFineLocation(
+                      this, mAppOps, callingPackage, callingFeatureId, app.mUserHandle);
             }
+        } catch (SecurityException se) {
+            // No need to throw here. Just mark as not granted.
+            app.hasLocationPermission = false;
         }
         app.mHasNetworkSettingsPermission =
                 Utils.checkCallerHasNetworkSettingsPermission(this);
@@ -2388,7 +2199,6 @@ public class GattService extends ProfileService {
         scanClient.hasNetworkSetupWizardPermission = app.mHasNetworkSetupWizardPermission;
         scanClient.hasScanWithoutLocationPermission = app.mHasScanWithoutLocationPermission;
         scanClient.associatedDevices = app.mAssociatedDevices;
-        scanClient.hasDisavowedLocation = app.mHasDisavowedLocation;
 
         AppScanStats scanStats = mScannerMap.getAppScanStatsById(scannerId);
         if (scanStats != null) {
@@ -2401,24 +2211,15 @@ public class GattService extends ProfileService {
         mScanManager.startScan(scanClient);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
-    void flushPendingBatchResults(int scannerId, AttributionSource attributionSource) {
-        if (!Utils.checkScanPermissionForDataDelivery(
-                this, attributionSource, "GattService flushPendingBatchResults")) {
-            return;
-        }
+    void flushPendingBatchResults(int scannerId) {
         if (DBG) {
             Log.d(TAG, "flushPendingBatchResults - scannerId=" + scannerId);
         }
         mScanManager.flushBatchScanResults(new ScanClient(scannerId));
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
-    void stopScan(int scannerId, AttributionSource attributionSource) {
-        if (!Utils.checkScanPermissionForDataDelivery(
-                this, attributionSource, "GattService stopScan")) {
-            return;
-        }
+    void stopScan(int scannerId) {
+        enforceAdminPermission();
         int scanQueueSize =
                 mScanManager.getBatchScanQueue().size() + mScanManager.getRegularScanQueue().size();
         if (DBG) {
@@ -2434,12 +2235,8 @@ public class GattService extends ProfileService {
         mScanManager.stopScan(scannerId);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
-    void stopScan(PendingIntent intent, AttributionSource attributionSource) {
-        if (!Utils.checkScanPermissionForDataDelivery(
-                this, attributionSource, "GattService stopScan")) {
-            return;
-        }
+    void stopScan(PendingIntent intent, String callingPackage) {
+        enforceAdminPermission();
         PendingIntentInfo pii = new PendingIntentInfo();
         pii.intent = intent;
         ScannerMap.App app = mScannerMap.getByContextInfo(pii);
@@ -2448,14 +2245,13 @@ public class GattService extends ProfileService {
         }
         if (app != null) {
             final int scannerId = app.id;
-            stopScan(scannerId, attributionSource);
+            stopScan(scannerId);
             // Also unregister the scanner
-            unregisterScanner(scannerId, attributionSource);
+            unregisterScanner(scannerId);
         }
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void disconnectAll(AttributionSource attributionSource) {
+    void disconnectAll() {
         if (DBG) {
             Log.d(TAG, "disconnectAll()");
         }
@@ -2464,149 +2260,89 @@ public class GattService extends ProfileService {
             if (DBG) {
                 Log.d(TAG, "disconnecting addr:" + entry.getValue());
             }
-            clientDisconnect(entry.getKey(), entry.getValue(), attributionSource);
+            clientDisconnect(entry.getKey(), entry.getValue());
             //clientDisconnect(int clientIf, String address)
         }
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void unregAll(AttributionSource attributionSource) {
+    void unregAll() {
         for (Integer appId : mClientMap.getAllAppsIds()) {
             if (DBG) {
                 Log.d(TAG, "unreg:" + appId);
             }
-            unregisterClient(appId, attributionSource);
+            unregisterClient(appId);
         }
     }
 
     /**************************************************************************
      * PERIODIC SCANNING
      *************************************************************************/
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
     void registerSync(ScanResult scanResult, int skip, int timeout,
-            IPeriodicAdvertisingCallback callback, AttributionSource attributionSource) {
-        if (!Utils.checkScanPermissionForDataDelivery(
-                this, attributionSource, "GattService registerSync")) {
-            return;
-        }
+            IPeriodicAdvertisingCallback callback) {
+        enforceAdminPermission();
         mPeriodicScanManager.startSync(scanResult, skip, timeout, callback);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
-    void unregisterSync(
-            IPeriodicAdvertisingCallback callback, AttributionSource attributionSource) {
-        if (!Utils.checkScanPermissionForDataDelivery(
-                this, attributionSource, "GattService unregisterSync")) {
-            return;
-        }
+    void unregisterSync(IPeriodicAdvertisingCallback callback) {
+        enforceAdminPermission();
         mPeriodicScanManager.stopSync(callback);
     }
 
     /**************************************************************************
      * ADVERTISING SET
      *************************************************************************/
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
     void startAdvertisingSet(AdvertisingSetParameters parameters, AdvertiseData advertiseData,
             AdvertiseData scanResponse, PeriodicAdvertisingParameters periodicParameters,
             AdvertiseData periodicData, int duration, int maxExtAdvEvents,
-            IAdvertisingSetCallback callback, AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService startAdvertisingSet")) {
-            return;
-        }
+            IAdvertisingSetCallback callback) {
+        enforceAdminPermission();
         mAdvertiseManager.startAdvertisingSet(parameters, advertiseData, scanResponse,
                 periodicParameters, periodicData, duration, maxExtAdvEvents, callback);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
-    void stopAdvertisingSet(IAdvertisingSetCallback callback, AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService stopAdvertisingSet")) {
-            return;
-        }
+    void stopAdvertisingSet(IAdvertisingSetCallback callback) {
+        enforceAdminPermission();
         mAdvertiseManager.stopAdvertisingSet(callback);
     }
 
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_ADVERTISE,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
-    void getOwnAddress(int advertiserId, AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService getOwnAddress")) {
-            return;
-        }
+    void getOwnAddress(int advertiserId) {
         enforcePrivilegedPermission();
         mAdvertiseManager.getOwnAddress(advertiserId);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
-    void enableAdvertisingSet(int advertiserId, boolean enable, int duration, int maxExtAdvEvents,
-            AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService enableAdvertisingSet")) {
-            return;
-        }
+    void enableAdvertisingSet(int advertiserId, boolean enable, int duration, int maxExtAdvEvents) {
+        enforceAdminPermission();
         mAdvertiseManager.enableAdvertisingSet(advertiserId, enable, duration, maxExtAdvEvents);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
-    void setAdvertisingData(
-            int advertiserId, AdvertiseData data, AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService setAdvertisingData")) {
-            return;
-        }
+    void setAdvertisingData(int advertiserId, AdvertiseData data) {
+        enforceAdminPermission();
         mAdvertiseManager.setAdvertisingData(advertiserId, data);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
-    void setScanResponseData(
-            int advertiserId, AdvertiseData data, AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService setScanResponseData")) {
-            return;
-        }
+    void setScanResponseData(int advertiserId, AdvertiseData data) {
+        enforceAdminPermission();
         mAdvertiseManager.setScanResponseData(advertiserId, data);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
-    void setAdvertisingParameters(int advertiserId, AdvertisingSetParameters parameters,
-            AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService setAdvertisingParameters")) {
-            return;
-        }
+    void setAdvertisingParameters(int advertiserId, AdvertisingSetParameters parameters) {
+        enforceAdminPermission();
         mAdvertiseManager.setAdvertisingParameters(advertiserId, parameters);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
     void setPeriodicAdvertisingParameters(int advertiserId,
-            PeriodicAdvertisingParameters parameters, AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService setPeriodicAdvertisingParameters")) {
-            return;
-        }
+            PeriodicAdvertisingParameters parameters) {
+        enforceAdminPermission();
         mAdvertiseManager.setPeriodicAdvertisingParameters(advertiserId, parameters);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
-    void setPeriodicAdvertisingData(
-            int advertiserId, AdvertiseData data, AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService setPeriodicAdvertisingData")) {
-            return;
-        }
+    void setPeriodicAdvertisingData(int advertiserId, AdvertiseData data) {
+        enforceAdminPermission();
         mAdvertiseManager.setPeriodicAdvertisingData(advertiserId, data);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
-    void setPeriodicAdvertisingEnable(
-            int advertiserId, boolean enable, AttributionSource attributionSource) {
-        if (!Utils.checkAdvertisePermissionForDataDelivery(
-                this, attributionSource, "GattService setPeriodicAdvertisingEnable")) {
-            return;
-        }
+    void setPeriodicAdvertisingEnable(int advertiserId, boolean enable) {
+        enforceAdminPermission();
         mAdvertiseManager.setPeriodicAdvertisingEnable(advertiserId, enable);
     }
 
@@ -2614,27 +2350,18 @@ public class GattService extends ProfileService {
      * GATT Service functions - CLIENT
      *************************************************************************/
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void registerClient(UUID uuid, IBluetoothGattCallback callback, boolean eatt_support,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService registerClient")) {
-            return;
-        }
+    void registerClient(UUID uuid, IBluetoothGattCallback callback) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "registerClient() - UUID=" + uuid);
         }
         mClientMap.add(uuid, null, callback, null, this);
-        gattClientRegisterAppNative(uuid.getLeastSignificantBits(), uuid.getMostSignificantBits(), eatt_support);
+        gattClientRegisterAppNative(uuid.getLeastSignificantBits(), uuid.getMostSignificantBits());
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void unregisterClient(int clientIf, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService unregisterClient")) {
-            return;
-        }
+    void unregisterClient(int clientIf) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "unregisterClient() - clientIf=" + clientIf);
@@ -2643,13 +2370,9 @@ public class GattService extends ProfileService {
         gattClientUnregisterAppNative(clientIf);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     void clientConnect(int clientIf, String address, boolean isDirect, int transport,
-            boolean opportunistic, int phy, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService clientConnect")) {
-            return;
-        }
+            boolean opportunistic, int phy) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "clientConnect() - address=" + address + ", isDirect=" + isDirect
@@ -2658,12 +2381,8 @@ public class GattService extends ProfileService {
         gattClientConnectNative(clientIf, address, isDirect, transport, opportunistic, phy);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void clientDisconnect(int clientIf, String address, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService clientDisconnect")) {
-            return;
-        }
+    void clientDisconnect(int clientIf, String address) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Integer connId = mClientMap.connIdByAddress(clientIf, address);
         if (DBG) {
@@ -2673,13 +2392,8 @@ public class GattService extends ProfileService {
         gattClientDisconnectNative(clientIf, address, connId != null ? connId : 0);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void clientSetPreferredPhy(int clientIf, String address, int txPhy, int rxPhy, int phyOptions,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService clientSetPreferredPhy")) {
-            return;
-        }
+    void clientSetPreferredPhy(int clientIf, String address, int txPhy, int rxPhy, int phyOptions) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Integer connId = mClientMap.connIdByAddress(clientIf, address);
         if (connId == null) {
@@ -2695,12 +2409,8 @@ public class GattService extends ProfileService {
         gattClientSetPreferredPhyNative(clientIf, address, txPhy, rxPhy, phyOptions);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void clientReadPhy(int clientIf, String address, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService clientReadPhy")) {
-            return;
-        }
+    void clientReadPhy(int clientIf, String address) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Integer connId = mClientMap.connIdByAddress(clientIf, address);
         if (connId == null) {
@@ -2716,22 +2426,13 @@ public class GattService extends ProfileService {
         gattClientReadPhyNative(clientIf, address);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    int numHwTrackFiltersAvailable(AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService numHwTrackFiltersAvailable")) {
-            return 0;
-        }
+    int numHwTrackFiltersAvailable() {
         return (AdapterService.getAdapterService().getTotalNumOfTrackableAdvertisements()
                 - mScanManager.getCurrentUsedTrackingAdvertisement());
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    synchronized List<ParcelUuid> getRegisteredServiceUuids(AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService getRegisteredServiceUuids")) {
-            return new ArrayList<>(0);
-        }
+    synchronized List<ParcelUuid> getRegisteredServiceUuids() {
+        Utils.enforceAdminPermission(this);
         List<ParcelUuid> serviceUuids = new ArrayList<ParcelUuid>();
         for (HandleMap.Entry entry : mHandleMap.mEntries) {
             serviceUuids.add(new ParcelUuid(entry.uuid));
@@ -2739,12 +2440,8 @@ public class GattService extends ProfileService {
         return serviceUuids;
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    List<String> getConnectedDevices(AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService getConnectedDevices")) {
-            return new ArrayList<>(0);
-        }
+    List<String> getConnectedDevices() {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Set<String> connectedDevAddress = new HashSet<String>();
         connectedDevAddress.addAll(mClientMap.getConnectedDevices());
@@ -2753,12 +2450,8 @@ public class GattService extends ProfileService {
         return connectedDeviceList;
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void refreshDevice(int clientIf, String address, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService refreshDevice")) {
-            return;
-        }
+    void refreshDevice(int clientIf, String address) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "refreshDevice() - address=" + address);
@@ -2766,12 +2459,8 @@ public class GattService extends ProfileService {
         gattClientRefreshNative(clientIf, address);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void discoverServices(int clientIf, String address, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService discoverServices")) {
-            return;
-        }
+    void discoverServices(int clientIf, String address) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Integer connId = mClientMap.connIdByAddress(clientIf, address);
         if (DBG) {
@@ -2785,13 +2474,8 @@ public class GattService extends ProfileService {
         }
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void discoverServiceByUuid(
-            int clientIf, String address, UUID uuid, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService discoverServiceByUuid")) {
-            return;
-        }
+    void discoverServiceByUuid(int clientIf, String address, UUID uuid) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Integer connId = mClientMap.connIdByAddress(clientIf, address);
         if (connId != null) {
@@ -2802,13 +2486,8 @@ public class GattService extends ProfileService {
         }
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void readCharacteristic(int clientIf, String address, int handle, int authReq,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService readCharacteristic")) {
-            return;
-        }
+    void readCharacteristic(int clientIf, String address, int handle, int authReq) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (VDBG) {
             Log.d(TAG, "readCharacteristic() - address=" + address);
@@ -2828,13 +2507,9 @@ public class GattService extends ProfileService {
         gattClientReadCharacteristicNative(connId, handle, authReq);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     void readUsingCharacteristicUuid(int clientIf, String address, UUID uuid, int startHandle,
-            int endHandle, int authReq, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService readUsingCharacteristicUuid")) {
-            return;
-        }
+            int endHandle, int authReq) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (VDBG) {
             Log.d(TAG, "readUsingCharacteristicUuid() - address=" + address);
@@ -2855,13 +2530,9 @@ public class GattService extends ProfileService {
                 uuid.getMostSignificantBits(), startHandle, endHandle, authReq);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     void writeCharacteristic(int clientIf, String address, int handle, int writeType, int authReq,
-            byte[] value, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService writeCharacteristic")) {
-            return;
-        }
+            byte[] value) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (VDBG) {
             Log.d(TAG, "writeCharacteristic() - address=" + address);
@@ -2885,13 +2556,8 @@ public class GattService extends ProfileService {
         gattClientWriteCharacteristicNative(connId, handle, writeType, authReq, value);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void readDescriptor(int clientIf, String address, int handle, int authReq,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService readDescriptor")) {
-            return;
-        }
+    void readDescriptor(int clientIf, String address, int handle, int authReq) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (VDBG) {
             Log.d(TAG, "readDescriptor() - address=" + address);
@@ -2911,13 +2577,10 @@ public class GattService extends ProfileService {
         gattClientReadDescriptorNative(connId, handle, authReq);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void writeDescriptor(int clientIf, String address, int handle, int authReq, byte[] value,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService writeDescriptor")) {
-            return;
-        }
+    ;
+
+    void writeDescriptor(int clientIf, String address, int handle, int authReq, byte[] value) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
         if (VDBG) {
             Log.d(TAG, "writeDescriptor() - address=" + address);
         }
@@ -2936,12 +2599,8 @@ public class GattService extends ProfileService {
         gattClientWriteDescriptorNative(connId, handle, authReq, value);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void beginReliableWrite(int clientIf, String address, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService beginReliableWrite")) {
-            return;
-        }
+    void beginReliableWrite(int clientIf, String address) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "beginReliableWrite() - address=" + address);
@@ -2949,13 +2608,8 @@ public class GattService extends ProfileService {
         mReliableQueue.add(address);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void endReliableWrite(
-            int clientIf, String address, boolean execute, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService endReliableWrite")) {
-            return;
-        }
+    void endReliableWrite(int clientIf, String address, boolean execute) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "endReliableWrite() - address=" + address + " execute: " + execute);
@@ -2968,13 +2622,8 @@ public class GattService extends ProfileService {
         }
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void registerForNotification(int clientIf, String address, int handle, boolean enable,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService registerForNotification")) {
-            return;
-        }
+    void registerForNotification(int clientIf, String address, int handle, boolean enable) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "registerForNotification() - address=" + address + " enable: " + enable);
@@ -2994,12 +2643,8 @@ public class GattService extends ProfileService {
         gattClientRegisterForNotificationsNative(clientIf, address, handle, enable);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void readRemoteRssi(int clientIf, String address, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService readRemoteRssi")) {
-            return;
-        }
+    void readRemoteRssi(int clientIf, String address) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "readRemoteRssi() - address=" + address);
@@ -3007,12 +2652,8 @@ public class GattService extends ProfileService {
         gattClientReadRemoteRssiNative(clientIf, address);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void configureMTU(int clientIf, String address, int mtu, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService configureMTU")) {
-            return;
-        }
+    void configureMTU(int clientIf, String address, int mtu) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "configureMTU() - address=" + address + " mtu=" + mtu);
@@ -3025,18 +2666,13 @@ public class GattService extends ProfileService {
         }
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void connectionParameterUpdate(int clientIf, String address, int connectionPriority,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService connectionParameterUpdate")) {
-            return;
-        }
+    void connectionParameterUpdate(int clientIf, String address, int connectionPriority) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         int minInterval;
         int maxInterval;
 
-        // Peripheral latency
+        // Slave latency
         int latency;
 
         // Link supervision timeout is measured in N * 10ms
@@ -3073,26 +2709,22 @@ public class GattService extends ProfileService {
                 timeout, 0, 0);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     void leConnectionUpdate(int clientIf, String address, int minInterval,
-                            int maxInterval, int peripheralLatency,
+                            int maxInterval, int slaveLatency,
                             int supervisionTimeout, int minConnectionEventLen,
-                            int maxConnectionEventLen, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService leConnectionUpdate")) {
-            return;
-        }
+                            int maxConnectionEventLen) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "leConnectionUpdate() - address=" + address + ", intervals="
-                        + minInterval + "/" + maxInterval + ", latency=" + peripheralLatency
+                        + minInterval + "/" + maxInterval + ", latency=" + slaveLatency
                         + ", timeout=" + supervisionTimeout + "msec" + ", min_ce="
                         + minConnectionEventLen + ", max_ce=" + maxConnectionEventLen);
 
 
         }
         gattConnectionParameterUpdateNative(clientIf, address, minInterval, maxInterval,
-                                            peripheralLatency, supervisionTimeout,
+                                            slaveLatency, supervisionTimeout,
                                             minConnectionEventLen, maxConnectionEventLen);
     }
 
@@ -3383,27 +3015,18 @@ public class GattService extends ProfileService {
      * GATT Service functions - SERVER
      *************************************************************************/
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void registerServer(UUID uuid, IBluetoothGattServerCallback callback, boolean eatt_support,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService registerServer")) {
-            return;
-        }
+    void registerServer(UUID uuid, IBluetoothGattServerCallback callback) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "registerServer() - UUID=" + uuid);
         }
         mServerMap.add(uuid, null, callback, null, this);
-        gattServerRegisterAppNative(uuid.getLeastSignificantBits(), uuid.getMostSignificantBits(), eatt_support);
+        gattServerRegisterAppNative(uuid.getLeastSignificantBits(), uuid.getMostSignificantBits());
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void unregisterServer(int serverIf, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService unregisterServer")) {
-            return;
-        }
+    void unregisterServer(int serverIf) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "unregisterServer() - serverIf=" + serverIf);
@@ -3415,13 +3038,8 @@ public class GattService extends ProfileService {
         gattServerUnregisterAppNative(serverIf);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void serverConnect(int serverIf, String address, boolean isDirect, int transport,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService serverConnect")) {
-            return;
-        }
+    void serverConnect(int serverIf, String address, boolean isDirect, int transport) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "serverConnect() - address=" + address);
@@ -3429,12 +3047,8 @@ public class GattService extends ProfileService {
         gattServerConnectNative(serverIf, address, isDirect, transport);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void serverDisconnect(int serverIf, String address, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService serverDisconnect")) {
-            return;
-        }
+    void serverDisconnect(int serverIf, String address) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Integer connId = mServerMap.connIdByAddress(serverIf, address);
         if (DBG) {
@@ -3444,13 +3058,8 @@ public class GattService extends ProfileService {
         gattServerDisconnectNative(serverIf, address, connId != null ? connId : 0);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void serverSetPreferredPhy(int serverIf, String address, int txPhy, int rxPhy, int phyOptions,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService serverSetPreferredPhy")) {
-            return;
-        }
+    void serverSetPreferredPhy(int serverIf, String address, int txPhy, int rxPhy, int phyOptions) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Integer connId = mServerMap.connIdByAddress(serverIf, address);
         if (connId == null) {
@@ -3466,12 +3075,8 @@ public class GattService extends ProfileService {
         gattServerSetPreferredPhyNative(serverIf, address, txPhy, rxPhy, phyOptions);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void serverReadPhy(int serverIf, String address, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService serverReadPhy")) {
-            return;
-        }
+    void serverReadPhy(int serverIf, String address) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         Integer connId = mServerMap.connIdByAddress(serverIf, address);
         if (connId == null) {
@@ -3487,13 +3092,8 @@ public class GattService extends ProfileService {
         gattServerReadPhyNative(serverIf, address);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void addService(
-            int serverIf, BluetoothGattService service, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService addService")) {
-            return;
-        }
+    void addService(int serverIf, BluetoothGattService service) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "addService() - uuid=" + service.getUuid());
@@ -3534,12 +3134,8 @@ public class GattService extends ProfileService {
         gattServerAddServiceNative(serverIf, db);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void removeService(int serverIf, int handle, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService removeService")) {
-            return;
-        }
+    void removeService(int serverIf, int handle) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "removeService() - handle=" + handle);
@@ -3548,12 +3144,8 @@ public class GattService extends ProfileService {
         gattServerDeleteServiceNative(serverIf, handle);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void clearServices(int serverIf, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService clearServices")) {
-            return;
-        }
+    void clearServices(int serverIf) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (DBG) {
             Log.d(TAG, "clearServices()");
@@ -3561,13 +3153,9 @@ public class GattService extends ProfileService {
         deleteServices(serverIf);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     void sendResponse(int serverIf, String address, int requestId, int status, int offset,
-            byte[] value, AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService sendResponse")) {
-            return;
-        }
+            byte[] value) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (VDBG) {
             Log.d(TAG, "sendResponse() - address=" + address);
@@ -3585,13 +3173,8 @@ public class GattService extends ProfileService {
         mHandleMap.deleteRequest(requestId);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    void sendNotification(int serverIf, String address, int handle, boolean confirm, byte[] value,
-            AttributionSource attributionSource) {
-        if (!Utils.checkConnectPermissionForDataDelivery(
-                this, attributionSource, "GattService sendNotification")) {
-            return;
-        }
+    void sendNotification(int serverIf, String address, int handle, boolean confirm, byte[] value) {
+        enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
 
         if (VDBG) {
             Log.d(TAG, "sendNotification() - address=" + address + " handle=" + handle);
@@ -3643,20 +3226,20 @@ public class GattService extends ProfileService {
         return type;
     }
 
+    private void enforceAdminPermission() {
+        enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM, "Need BLUETOOTH_ADMIN permission");
+    }
+
     private boolean needsPrivilegedPermissionForScan(ScanSettings settings) {
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         // BLE scan only mode needs special permission.
-        if (mAdapterService.getState() != BluetoothAdapter.STATE_ON) {
+        if (adapter.getState() != BluetoothAdapter.STATE_ON) {
             return true;
         }
 
         // Regular scan, no special permission.
         if (settings == null) {
             return false;
-        }
-
-        // Ambient discovery mode, needs privileged permission.
-        if (settings.getScanMode() == ScanSettings.SCAN_MODE_AMBIENT_DISCOVERY) {
-            return true;
         }
 
         // Regular scan, no special permission.
@@ -3668,103 +3251,19 @@ public class GattService extends ProfileService {
         return settings.getScanResultType() == ScanSettings.SCAN_RESULT_TYPE_ABBREVIATED;
     }
 
-    /*
-     * The {@link ScanFilter#setDeviceAddress} API overloads are @SystemApi access methods.  This
-     * requires that the permissions be BLUETOOTH_PRIVILEGED.
-     */
-    @SuppressLint("AndroidFrameworkRequiresPermission")
-    private void enforcePrivilegedPermissionIfNeeded(List<ScanFilter> filters) {
-        if (DBG) {
-            Log.d(TAG, "enforcePrivilegedPermissionIfNeeded(" + filters + ")");
-        }
-        // Some 3p API cases may have null filters, need to allow
-        if (filters != null) {
-            for (ScanFilter filter : filters) {
-                // The only case to enforce here is if there is an address
-                // If there is an address, enforce if the correct combination criteria is met.
-                if (filter.getDeviceAddress() != null) {
-                    // At this point we have an address, that means a caller used the
-                    // setDeviceAddress(address) public API for the ScanFilter
-                    // We don't want to enforce if the type is PUBLIC and the IRK is null
-                    // However, if we have a different type that means the caller used a new
-                    // @SystemApi such as setDeviceAddress(address, type) or
-                    // setDeviceAddress(address, type, irk) which are both @SystemApi and require
-                    // permissions to be enforced
-                    if (filter.getAddressType()
-                            == BluetoothDevice.ADDRESS_TYPE_PUBLIC && filter.getIrk() == null) {
-                        // Do not enforce
-                    } else {
-                        enforcePrivilegedPermission();
-                    }
-                }
-            }
-        }
-    }
-
     // Enforce caller has BLUETOOTH_PRIVILEGED permission. A {@link SecurityException} will be
     // thrown if the caller app does not have BLUETOOTH_PRIVILEGED permission.
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     private void enforcePrivilegedPermission() {
         enforceCallingOrSelfPermission(BLUETOOTH_PRIVILEGED,
                 "Need BLUETOOTH_PRIVILEGED permission");
     }
 
-    @SuppressLint("AndroidFrameworkRequiresPermission")
-    private void enforcePrivilegedPermissionIfNeeded(ScanSettings settings) {
-        if (needsPrivilegedPermissionForScan(settings)) {
-            enforcePrivilegedPermission();
-        }
-    }
-
     // Enforce caller has UPDATE_DEVICE_STATS permission, which allows the caller to blame other
     // apps for Bluetooth usage. A {@link SecurityException} will be thrown if the caller app does
     // not have UPDATE_DEVICE_STATS permission.
-    @RequiresPermission(android.Manifest.permission.UPDATE_DEVICE_STATS)
     private void enforceImpersonatationPermission() {
         enforceCallingOrSelfPermission(android.Manifest.permission.UPDATE_DEVICE_STATS,
                 "Need UPDATE_DEVICE_STATS permission");
-    }
-
-    @SuppressLint("AndroidFrameworkRequiresPermission")
-    private void enforceImpersonatationPermissionIfNeeded(WorkSource workSource) {
-        if (workSource != null) {
-            enforceImpersonatationPermission();
-        }
-    }
-
-    /**
-     * Ensures the report delay is either 0 or at least the floor value (5000ms)
-     *
-     * @param  settings are the scan settings passed into a request to start le scanning
-     * @return the passed in ScanSettings object if the report delay is 0 or above the floor value;
-     *         a new ScanSettings object with the report delay being the floor value if the original
-     *         report delay was between 0 and the floor value (exclusive of both)
-     */
-    private ScanSettings enforceReportDelayFloor(ScanSettings settings) {
-        if (settings.getReportDelayMillis() == 0) {
-            return settings;
-        }
-
-        // Need to clear identity to pass device config permission check
-        long callerToken = Binder.clearCallingIdentity();
-        long floor = DeviceConfig.getLong(DeviceConfig.NAMESPACE_BLUETOOTH, "report_delay",
-                DEFAULT_REPORT_DELAY_FLOOR);
-        Binder.restoreCallingIdentity(callerToken);
-
-        if (settings.getReportDelayMillis() > floor) {
-            return settings;
-        } else {
-            return new ScanSettings.Builder()
-                    .setCallbackType(settings.getCallbackType())
-                    .setLegacy(settings.getLegacy())
-                    .setMatchMode(settings.getMatchMode())
-                    .setNumOfMatches(settings.getNumOfMatches())
-                    .setPhy(settings.getPhy())
-                    .setReportDelay(floor)
-                    .setScanMode(settings.getScanMode())
-                    .setScanResultType(settings.getScanResultType())
-                    .build();
-        }
     }
 
     private void stopNextService(int serverIf, int status) throws RemoteException {
@@ -3808,6 +3307,38 @@ public class GattService extends ProfileService {
         for (Integer handle : handleList) {
             gattServerDeleteServiceNative(serverIf, handle);
         }
+    }
+
+    private List<UUID> parseUuids(byte[] advData) {
+        List<UUID> uuids = new ArrayList<UUID>();
+
+        int offset = 0;
+        while (offset < (advData.length - 2)) {
+            int len = Byte.toUnsignedInt(advData[offset++]);
+            if (len == 0) {
+                break;
+            }
+
+            int type = advData[offset++];
+            switch (type) {
+                case 0x02: // Partial list of 16-bit UUIDs
+                case 0x03: // Complete list of 16-bit UUIDs
+                    while (len > 1) {
+                        int uuid16 = advData[offset++];
+                        uuid16 += (advData[offset++] << 8);
+                        len -= 2;
+                        uuids.add(UUID.fromString(
+                                String.format("%08x-0000-1000-8000-00805f9b34fb", uuid16)));
+                    }
+                    break;
+
+                default:
+                    offset += (len - 1);
+                    break;
+            }
+        }
+
+        return uuids;
     }
 
     void dumpRegisterId(StringBuilder sb) {
@@ -3900,7 +3431,7 @@ public class GattService extends ProfileService {
 
     private native int gattClientGetDeviceTypeNative(String address);
 
-    private native void gattClientRegisterAppNative(long appUuidLsb, long appUuidMsb, boolean eatt_support);
+    private native void gattClientRegisterAppNative(long appUuidLsb, long appUuidMsb);
 
     private native void gattClientUnregisterAppNative(int clientIf);
 
@@ -3950,7 +3481,7 @@ public class GattService extends ProfileService {
             int minInterval, int maxInterval, int latency, int timeout, int minConnectionEventLen,
             int maxConnectionEventLen);
 
-    private native void gattServerRegisterAppNative(long appUuidLsb, long appUuidMsb, boolean eatt_support);
+    private native void gattServerRegisterAppNative(long appUuidLsb, long appUuidMsb);
 
     private native void gattServerUnregisterAppNative(int serverIf);
 

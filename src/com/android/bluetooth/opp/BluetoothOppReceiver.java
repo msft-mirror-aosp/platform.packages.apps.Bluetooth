@@ -45,7 +45,6 @@ import android.util.Log;
 import android.widget.Toast;
 
 import com.android.bluetooth.R;
-import com.android.bluetooth.Utils;
 
 /**
  * Receives and handles: system broadcasts; Intents from other applications;
@@ -249,8 +248,7 @@ public class BluetoothOppReceiver extends BroadcastReceiver {
                     handoverIntent.putExtra(Constants.EXTRA_BT_OPP_TRANSFER_STATUS,
                             Constants.HANDOVER_TRANSFER_STATUS_FAILURE);
                 }
-                context.sendBroadcast(handoverIntent, Constants.HANDOVER_STATUS_PERMISSION,
-                        Utils.getTempAllowlistBroadcastOptions());
+                context.sendBroadcast(handoverIntent, Constants.HANDOVER_STATUS_PERMISSION);
                 return;
             }
 

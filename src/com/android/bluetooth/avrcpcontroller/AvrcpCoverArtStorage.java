@@ -20,28 +20,21 @@ import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.Environment;
 import android.util.Log;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 
 /**
- * An abstraction of the cover art image storage mechanism.
+ * An abstraction of the file system storage of the downloaded cover art images.
  */
 public class AvrcpCoverArtStorage {
     private static final String TAG = "AvrcpCoverArtStorage";
     private static final boolean DBG = Log.isLoggable(TAG, Log.DEBUG);
 
     private final Context mContext;
-
-    /* Each device gets its own place to land images. This makes it easier to clean things up on a
-     * per device basis. This also allows us to be confident that acting on one device will not
-     * impact the images of another.
-     *
-     * The "landing place" is simply a map that will direct a given UUID to the proper bitmap image
-     */
-    private final Map<BluetoothDevice, Map<String, Bitmap>> mDeviceImages =
-            new ConcurrentHashMap<>(1);
 
     /**
      * Create and initialize this Cover Art storage interface
@@ -54,81 +47,94 @@ public class AvrcpCoverArtStorage {
      * Determine if an image already exists in storage
      *
      * @param device - The device the images was downloaded from
-     * @param imageUuid - The UUID that identifies the image
+     * @param imageHandle - The handle that identifies the image
      */
-    public boolean doesImageExist(BluetoothDevice device, String imageUuid) {
-        if (device == null || imageUuid == null || "".equals(imageUuid)) return false;
-        Map<String, Bitmap> images = mDeviceImages.get(device);
-        if (images == null) return false;
-        return images.containsKey(imageUuid);
+    public boolean doesImageExist(BluetoothDevice device, String imageHandle) {
+        if (device == null || imageHandle == null || "".equals(imageHandle)) return false;
+        String path = getImagePath(device, imageHandle);
+        if (path == null) return false;
+        File file = new File(path);
+        return file.exists();
     }
 
     /**
      * Retrieve an image file from storage
      *
      * @param device - The device the images was downloaded from
-     * @param imageUuid - The UUID that identifies the image
-     * @return A Bitmap object of the image
+     * @param imageHandle - The handle that identifies the image
+     * @return A file descriptor for the image
      */
-    public Bitmap getImage(BluetoothDevice device, String imageUuid) {
-        if (device == null || imageUuid == null || "".equals(imageUuid)) return null;
-        Map<String, Bitmap> images = mDeviceImages.get(device);
-        if (images == null) return null;
-        return images.get(imageUuid);
+    public File getImageFile(BluetoothDevice device, String imageHandle) {
+        if (device == null || imageHandle == null || "".equals(imageHandle)) return null;
+        String path = getImagePath(device, imageHandle);
+        if (path == null) return null;
+        File file = new File(path);
+        return file.exists() ? file : null;
     }
 
     /**
      * Add an image to storage
      *
      * @param device - The device the images was downloaded from
-     * @param imageUuid - The UUID that identifies the image
+     * @param imageHandle - The handle that identifies the image
      * @param image - The image
      */
-    public Uri addImage(BluetoothDevice device, String imageUuid, Bitmap image) {
-        debug("Storing image '" + imageUuid + "' from device " + device);
-        if (device == null || imageUuid == null || "".equals(imageUuid) || image == null) {
+    public Uri addImage(BluetoothDevice device, String imageHandle, Bitmap image) {
+        debug("Storing image '" + imageHandle + "' from device " + device);
+        if (device == null || imageHandle == null || "".equals(imageHandle) || image == null) {
             debug("Cannot store image. Improper aruguments");
             return null;
         }
 
-        // A Thread safe way of creating a new UUID->Image set for a device. The putIfAbsent()
-        // function will return the value of the key if it wasn't absent. If it returns null, then
-        // there was no value there and we are to assume the reference we passed in was added.
-        Map<String, Bitmap> newImageSet = new ConcurrentHashMap<String, Bitmap>(1);
-        Map<String, Bitmap> images = mDeviceImages.putIfAbsent(device, newImageSet);
-        if (images == null) {
-            newImageSet.put(imageUuid, image);
-        } else {
-            images.put(imageUuid, image);
+        String path = getImagePath(device, imageHandle);
+        if (path == null) {
+            error("Cannot store image. Cannot provide a valid path to storage");
+            return null;
         }
 
-        Uri uri = AvrcpCoverArtProvider.getImageUri(device, imageUuid);
+        try {
+            String deviceDirectoryPath = getDevicePath(device);
+            if (deviceDirectoryPath == null) {
+                error("Cannot store image. Cannot get a valid path to per-device storage");
+                return null;
+            }
+            File deviceDirectory = new File(deviceDirectoryPath);
+            if (!deviceDirectory.exists()) {
+                deviceDirectory.mkdirs();
+            }
+
+            FileOutputStream outputStream = new FileOutputStream(path);
+            image.compress(Bitmap.CompressFormat.PNG, 100, outputStream);
+            outputStream.flush();
+            outputStream.close();
+        } catch (IOException e) {
+            error("Failed to store '" + imageHandle + "' to '" + path + "'");
+            return null;
+        }
+        Uri uri = AvrcpCoverArtProvider.getImageUri(device, imageHandle);
         mContext.getContentResolver().notifyChange(uri, null);
-        debug("Image '" + imageUuid + "' stored for device '" + device.getAddress() + "'");
+        debug("Image stored at '" + path + "'");
         return uri;
     }
 
     /**
      * Remove a specific image
      *
-     * @param device The device the image belongs to
-     * @param imageUuid - The UUID that identifies the image
+     * @param device The device you wish to have images removed for
+     * @param imageHandle The handle that identifies the image to delete
      */
-    public void removeImage(BluetoothDevice device, String imageUuid) {
-        debug("Removing image '" + imageUuid + "' from device " + device);
-        if (device == null || imageUuid == null || "".equals(imageUuid)) return;
-
-        Map<String, Bitmap> images = mDeviceImages.get(device);
-        if (images == null) {
+    public void removeImage(BluetoothDevice device, String imageHandle) {
+        debug("Removing image '" + imageHandle + "' from device " + device);
+        if (device == null || imageHandle == null || "".equals(imageHandle)) return;
+        String path = getImagePath(device, imageHandle);
+        if (path == null) {
+            error("Cannot remove image. Cannot get a valid path to storage");
             return;
         }
-
-        images.remove(imageUuid);
-        if (images.size() == 0) {
-            mDeviceImages.remove(device);
-        }
-
-        debug("Image '" + imageUuid + "' removed for device '" + device.getAddress() + "'");
+        File file = new File(path);
+        if (!file.exists()) return;
+        file.delete();
+        debug("Image deleted at '" + path + "'");
     }
 
     /**
@@ -139,27 +145,91 @@ public class AvrcpCoverArtStorage {
     public void removeImagesForDevice(BluetoothDevice device) {
         if (device == null) return;
         debug("Remove cover art for device " + device.getAddress());
-        mDeviceImages.remove(device);
+        String deviceDirectoryPath = getDevicePath(device);
+        if (deviceDirectoryPath == null) {
+            error("Cannot remove images for device. Cannot get a valid path to storage");
+            return;
+        }
+        File deviceDirectory = new File(deviceDirectoryPath);
+        deleteStorageDirectory(deviceDirectory);
     }
 
     /**
      * Clear the entirety of storage
      */
     public void clear() {
-        debug("Clearing all images");
-        mDeviceImages.clear();
+        String storageDirectoryPath = getStorageDirectory();
+        if (storageDirectoryPath == null) {
+            error("Cannot remove images, cannot get a valid path to storage. Is it mounted?");
+            return;
+        }
+        File storageDirectory = new File(storageDirectoryPath);
+        deleteStorageDirectory(storageDirectory);
+    }
+
+    private String getStorageDirectory() {
+        String dir = null;
+        if (Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState())) {
+            dir = mContext.getExternalFilesDir(null).getAbsolutePath() + "/coverart";
+        } else {
+            error("Cannot get storage directory, state=" + Environment.getExternalStorageState());
+        }
+        return dir;
+    }
+
+    private String getDevicePath(BluetoothDevice device) {
+        String storageDir = getStorageDirectory();
+        if (storageDir == null) return null;
+        return storageDir + "/" + device.getAddress().replace(":", "");
+    }
+
+    private String getImagePath(BluetoothDevice device, String imageHandle) {
+        String deviceDir = getDevicePath(device);
+        if (deviceDir == null) return null;
+        return deviceDir + "/" + imageHandle + ".png";
+    }
+
+    private void deleteStorageDirectory(File directory) {
+        if (directory == null) {
+            error("Cannot delete directory, file is null");
+            return;
+        }
+        if (!directory.exists()) return;
+        File[] files = directory.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (int i = 0; i < files.length; i++) {
+            debug("Deleting " + files[i].getAbsolutePath());
+            if (files[i].isDirectory()) {
+                deleteStorageDirectory(files[i]);
+            } else {
+                files[i].delete();
+            }
+        }
+        directory.delete();
     }
 
     @Override
     public String toString() {
         String s = "CoverArtStorage:\n";
-        for (BluetoothDevice device : mDeviceImages.keySet()) {
-            Map<String, Bitmap> images = mDeviceImages.get(device);
-            s += "  " + device.getAddress() + " (" + images.size() + "):";
-            for (String uuid : images.keySet()) {
-                s += "\n    " + uuid;
+        String storageDirectory = getStorageDirectory();
+        s += "    Storage Directory: " + storageDirectory + "\n";
+        if (storageDirectory == null) {
+            return s;
+        }
+
+        File storage = new File(storageDirectory);
+        File[] devices = storage.listFiles();
+        if (devices != null) {
+            for (File deviceDirectory : devices) {
+                s += "    " + deviceDirectory.getName() + ":\n";
+                File[] images = deviceDirectory.listFiles();
+                if (images == null) continue;
+                for (File image : images) {
+                    s += "      " + image.getName() + "\n";
+                }
             }
-            s += "\n";
         }
         return s;
     }

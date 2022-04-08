@@ -16,17 +16,13 @@
 
 package com.android.bluetooth.btservice;
 
-import android.annotation.RequiresPermission;
-import android.app.ActivityThread;
 import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothHearingAid;
-import android.bluetooth.BluetoothLeAudio;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothUuid;
-import android.content.Attributable;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -39,7 +35,6 @@ import android.os.Parcelable;
 import android.util.Log;
 
 import com.android.bluetooth.a2dp.A2dpService;
-import com.android.bluetooth.btservice.storage.DatabaseManager;
 import com.android.bluetooth.hearingaid.HearingAidService;
 import com.android.bluetooth.hfp.HeadsetService;
 import com.android.bluetooth.hid.HidHostService;
@@ -50,7 +45,6 @@ import com.android.internal.util.ArrayUtils;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 
 // Describes the phone policy
 //
@@ -92,7 +86,6 @@ class PhonePolicy {
     // Timeouts
     @VisibleForTesting static int sConnectOtherProfilesTimeoutMillis = 6000; // 6s
 
-    private DatabaseManager mDatabaseManager;
     private final AdapterService mAdapterService;
     private final ServiceFactory mFactory;
     private final Handler mHandler;
@@ -120,11 +113,6 @@ class PhonePolicy {
                             BluetoothProfile.A2DP, -1, // No-op argument
                             intent).sendToTarget();
                     break;
-                case BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED:
-                    mHandler.obtainMessage(MESSAGE_PROFILE_CONNECTION_STATE_CHANGED,
-                            BluetoothProfile.LE_AUDIO, -1, // No-op argument
-                            intent).sendToTarget();
-                    break;
                 case BluetoothA2dp.ACTION_ACTIVE_DEVICE_CHANGED:
                     mHandler.obtainMessage(MESSAGE_PROFILE_ACTIVE_DEVICE_CHANGED,
                             BluetoothProfile.A2DP, -1, // No-op argument
@@ -138,11 +126,6 @@ class PhonePolicy {
                 case BluetoothHearingAid.ACTION_ACTIVE_DEVICE_CHANGED:
                     mHandler.obtainMessage(MESSAGE_PROFILE_ACTIVE_DEVICE_CHANGED,
                             BluetoothProfile.HEARING_AID, -1, // No-op argument
-                            intent).sendToTarget();
-                    break;
-                case BluetoothLeAudio.ACTION_LE_AUDIO_ACTIVE_DEVICE_CHANGED:
-                    mHandler.obtainMessage(MESSAGE_PROFILE_ACTIVE_DEVICE_CHANGED,
-                            BluetoothProfile.LE_AUDIO, -1, // No-op argument
                             intent).sendToTarget();
                     break;
                 case BluetoothAdapter.ACTION_STATE_CHANGED:
@@ -218,8 +201,6 @@ class PhonePolicy {
                     // Called when we try connect some profiles in processConnectOtherProfiles but
                     // we send a delayed message to try connecting the remaining profiles
                     BluetoothDevice device = (BluetoothDevice) msg.obj;
-                    Attributable.setAttributionSource(device,
-                            ActivityThread.currentAttributionSource());
                     processConnectOtherProfiles(device);
                     mConnectOtherProfilesDeviceSet.remove(device);
                     break;
@@ -245,14 +226,12 @@ class PhonePolicy {
         IntentFilter filter = new IntentFilter();
         filter.addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED);
         filter.addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);
-        filter.addAction(BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED);
         filter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);
         filter.addAction(BluetoothDevice.ACTION_UUID);
         filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
         filter.addAction(BluetoothA2dp.ACTION_ACTIVE_DEVICE_CHANGED);
         filter.addAction(BluetoothHeadset.ACTION_ACTIVE_DEVICE_CHANGED);
         filter.addAction(BluetoothHearingAid.ACTION_ACTIVE_DEVICE_CHANGED);
-        filter.addAction(BluetoothLeAudio.ACTION_LE_AUDIO_ACTIVE_DEVICE_CHANGED);
         mAdapterService.registerReceiver(mReceiver, filter);
     }
 
@@ -263,14 +242,11 @@ class PhonePolicy {
 
     PhonePolicy(AdapterService service, ServiceFactory factory) {
         mAdapterService = service;
-        mDatabaseManager = Objects.requireNonNull(mAdapterService.getDatabase(),
-                "DatabaseManager cannot be null when PhonePolicy starts");
         mFactory = factory;
         mHandler = new PhonePolicyHandler(service.getMainLooper());
     }
 
     // Policy implementation, all functions MUST be private
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     private void processInitProfilePriorities(BluetoothDevice device, ParcelUuid[] uuids) {
         debugLog("processInitProfilePriorities() - device " + device);
         HidHostService hidService = mFactory.getHidHostService();
@@ -324,13 +300,11 @@ class PhonePolicy {
         }
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     private void processProfileStateChanged(BluetoothDevice device, int profileId, int nextState,
             int prevState) {
         debugLog("processProfileStateChanged, device=" + device + ", profile=" + profileId + ", "
                 + prevState + " -> " + nextState);
-        if (((profileId == BluetoothProfile.A2DP) || (profileId == BluetoothProfile.HEADSET)
-                || (profileId == BluetoothProfile.LE_AUDIO))) {
+        if (((profileId == BluetoothProfile.A2DP) || (profileId == BluetoothProfile.HEADSET))) {
             if (nextState == BluetoothProfile.STATE_CONNECTED) {
                 switch (profileId) {
                     case BluetoothProfile.A2DP:
@@ -344,7 +318,7 @@ class PhonePolicy {
             }
             if (nextState == BluetoothProfile.STATE_DISCONNECTED) {
                 if (profileId == BluetoothProfile.A2DP) {
-                    mDatabaseManager.setDisconnection(device);
+                    mAdapterService.getDatabase().setDisconnection(device);
                 }
                 handleAllProfilesDisconnected(device);
             }
@@ -361,16 +335,15 @@ class PhonePolicy {
         debugLog("processActiveDeviceChanged, device=" + device + ", profile=" + profileId);
 
         if (device != null) {
-            mDatabaseManager.setConnection(device, profileId == BluetoothProfile.A2DP);
+            mAdapterService.getDatabase().setConnection(device, profileId == BluetoothProfile.A2DP);
         }
     }
 
     private void processDeviceConnected(BluetoothDevice device) {
         debugLog("processDeviceConnected, device=" + device);
-        mDatabaseManager.setConnection(device, false);
+        mAdapterService.getDatabase().setConnection(device, false);
     }
 
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     private boolean handleAllProfilesDisconnected(BluetoothDevice device) {
         boolean atLeastOneProfileConnectedForDevice = false;
         boolean allProfilesEmpty = true;
@@ -415,7 +388,6 @@ class PhonePolicy {
         mA2dpRetrySet.clear();
     }
 
-    @RequiresPermission(android.Manifest.permission.MODIFY_PHONE_STATE)
     private void autoConnect() {
         if (mAdapterService.getState() != BluetoothAdapter.STATE_ON) {
             errorLog("autoConnect: BT is not ON. Exiting autoConnect");
@@ -425,7 +397,7 @@ class PhonePolicy {
         if (!mAdapterService.isQuietModeEnabled()) {
             debugLog("autoConnect: Initiate auto connection on BT on...");
             final BluetoothDevice mostRecentlyActiveA2dpDevice =
-                    mDatabaseManager.getMostRecentlyConnectedA2dpDevice();
+                    mAdapterService.getDatabase().getMostRecentlyConnectedA2dpDevice();
             if (mostRecentlyActiveA2dpDevice == null) {
                 errorLog("autoConnect: most recently active a2dp device is null");
                 return;
@@ -455,7 +427,6 @@ class PhonePolicy {
         }
     }
 
-    @RequiresPermission(android.Manifest.permission.MODIFY_PHONE_STATE)
     private void autoConnectHeadset(BluetoothDevice device) {
         final HeadsetService hsService = mFactory.getHeadsetService();
         if (hsService == null) {
@@ -491,10 +462,6 @@ class PhonePolicy {
     // profiles which are not already connected or in the process of connecting to attempt to
     // connect to the device that initiated the connection.  In the event that this function is
     // invoked and there are no current bluetooth connections no new profiles will be connected.
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            android.Manifest.permission.MODIFY_PHONE_STATE,
-    })
     private void processConnectOtherProfiles(BluetoothDevice device) {
         debugLog("processConnectOtherProfiles, device=" + device);
         if (mAdapterService.getState() != BluetoothAdapter.STATE_ON) {
