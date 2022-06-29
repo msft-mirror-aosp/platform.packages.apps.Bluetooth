@@ -38,13 +38,13 @@
     <string name="incoming_file_confirm_timeout_content" msgid="172779756093975981">"Времето истече додека се прифаќаше дојдовната датотека од „<xliff:g id="SENDER">%1$s</xliff:g>“."</string>
     <string name="incoming_file_confirm_Notification_title" msgid="5573329005298936903">"Дојдовна датотека"</string>
     <string name="incoming_file_confirm_Notification_content" msgid="6237487486781004992">"<xliff:g id="SENDER">%1$s</xliff:g> е подготвен да испрати датотека: <xliff:g id="FILE">%2$s</xliff:g>"</string>
-    <string name="notification_receiving" msgid="4674648179652543984">"Сподели преку Bluetooth: Се прима <xliff:g id="FILE">%1$s</xliff:g>"</string>
-    <string name="notification_received" msgid="3324588019186687985">"Сподели преку Bluetooth: Примена <xliff:g id="FILE">%1$s</xliff:g>"</string>
-    <string name="notification_received_fail" msgid="3619350997285714746">"Сподели преку Bluetooth: Датотеката <xliff:g id="FILE">%1$s</xliff:g> не е примена."</string>
-    <string name="notification_sending" msgid="3035748958534983833">"Сподели преку Bluetooth: Се испраќа <xliff:g id="FILE">%1$s</xliff:g>"</string>
-    <string name="notification_sent" msgid="9218710861333027778">"Сподели преку Bluetooth: Испратена <xliff:g id="FILE">%1$s</xliff:g>"</string>
+    <string name="notification_receiving" msgid="4674648179652543984">"Bluetooth: се прима <xliff:g id="FILE">%1$s</xliff:g>"</string>
+    <string name="notification_received" msgid="3324588019186687985">"Bluetooth: <xliff:g id="FILE">%1$s</xliff:g> е примена"</string>
+    <string name="notification_received_fail" msgid="3619350997285714746">"Bluetooth: датотеката <xliff:g id="FILE">%1$s</xliff:g> не е примена"</string>
+    <string name="notification_sending" msgid="3035748958534983833">"Bluetooth: се испраќа <xliff:g id="FILE">%1$s</xliff:g>"</string>
+    <string name="notification_sent" msgid="9218710861333027778">"Bluetooth: <xliff:g id="FILE">%1$s</xliff:g> е испратена"</string>
     <string name="notification_sent_complete" msgid="302943281067557969">"100% завршено"</string>
-    <string name="notification_sent_fail" msgid="6696082233774569445">"Сподели преку Bluetooth: Датотеката <xliff:g id="FILE">%1$s</xliff:g> не е испратена"</string>
+    <string name="notification_sent_fail" msgid="6696082233774569445">"Bluetooth: датотеката <xliff:g id="FILE">%1$s</xliff:g> не е испратена"</string>
     <string name="download_title" msgid="3353228219772092586">"Пренос на датотеки"</string>
     <string name="download_line1" msgid="4926604799202134144">"Од: „<xliff:g id="SENDER">%1$s</xliff:g>“"</string>
     <string name="download_line2" msgid="5876973543019417712">"Датотека: <xliff:g id="FILE">%1$s</xliff:g>"</string>
@@ -107,8 +107,8 @@
     <string name="outbound_history_title" msgid="4279418703178140526">"Излезни преноси"</string>
     <string name="no_transfers" msgid="3482965619151865672">"Историјата на пренос е празна."</string>
     <string name="transfer_clear_dlg_msg" msgid="1712376797268438075">"Сите ставки ќе бидат избришани од списокот."</string>
-    <string name="outbound_noti_title" msgid="8051906709452260849">"Сподели преку Bluetooth: Пратени датотеки"</string>
-    <string name="inbound_noti_title" msgid="4143352641953027595">"Сподели преку Bluetooth: Примени датотеки"</string>
+    <string name="outbound_noti_title" msgid="8051906709452260849">"Bluetooth: испратени датотеки"</string>
+    <string name="inbound_noti_title" msgid="4143352641953027595">"Bluetooth: примени датотеки"</string>
     <plurals name="noti_caption_unsuccessful" formatted="false" msgid="2020750076679526122">
       <item quantity="one"><xliff:g id="UNSUCCESSFUL_NUMBER_1">%1$d</xliff:g> неуспешен.</item>
       <item quantity="other"><xliff:g id="UNSUCCESSFUL_NUMBER_1">%1$d</xliff:g> неуспешни.</item>

@@ -42,7 +42,7 @@
     <string name="notification_received" msgid="3324588019186687985">"Perkongsian Bluetooth: Diterima <xliff:g id="FILE">%1$s</xliff:g>"</string>
     <string name="notification_received_fail" msgid="3619350997285714746">"Perkongsian Bluetooth: Fail <xliff:g id="FILE">%1$s</xliff:g> tidak diterima"</string>
     <string name="notification_sending" msgid="3035748958534983833">"Perkongsian Bluetooth: Menghantar <xliff:g id="FILE">%1$s</xliff:g>"</string>
-    <string name="notification_sent" msgid="9218710861333027778">"Perkongsian Bluetooth: Dihantar <xliff:g id="FILE">%1$s</xliff:g>"</string>
+    <string name="notification_sent" msgid="9218710861333027778">"Perkongsian Bluetooth: <xliff:g id="FILE">%1$s</xliff:g> dihantar"</string>
     <string name="notification_sent_complete" msgid="302943281067557969">"Selesai 100%"</string>
     <string name="notification_sent_fail" msgid="6696082233774569445">"Perkongsian Bluetooth: Fail <xliff:g id="FILE">%1$s</xliff:g> tidak dihantar"</string>
     <string name="download_title" msgid="3353228219772092586">"Pemindahan fail"</string>
@@ -107,7 +107,7 @@
     <string name="outbound_history_title" msgid="4279418703178140526">"Pemindahan keluar"</string>
     <string name="no_transfers" msgid="3482965619151865672">"Sejarah pemindahan kosong."</string>
     <string name="transfer_clear_dlg_msg" msgid="1712376797268438075">"Semua item akan dipadam bersih daripada senarai."</string>
-    <string name="outbound_noti_title" msgid="8051906709452260849">"Perkongsian Bluetooth: Fail diterima"</string>
+    <string name="outbound_noti_title" msgid="8051906709452260849">"Perkongsian Bluetooth: Fail dihantar"</string>
     <string name="inbound_noti_title" msgid="4143352641953027595">"Perkongsian Bluetooth: Fail diterima"</string>
     <plurals name="noti_caption_unsuccessful" formatted="false" msgid="2020750076679526122">
       <item quantity="other"><xliff:g id="UNSUCCESSFUL_NUMBER_1">%1$d</xliff:g> tidak berjaya.</item>
