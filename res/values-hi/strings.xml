@@ -32,8 +32,8 @@
     <string name="bt_enable_ok" msgid="3432462749994538265">"चालू करें"</string>
     <string name="incoming_file_confirm_title" msgid="8139874248612182627">"फ़ाइल ट्रांसफ़र करें"</string>
     <string name="incoming_file_confirm_content" msgid="2752605552743148036">"आवक फ़ाइल स्वीकार करें?"</string>
-    <string name="incoming_file_confirm_cancel" msgid="2973321832477704805">"अस्वीकारें"</string>
-    <string name="incoming_file_confirm_ok" msgid="281462442932231475">"स्वीकारें"</string>
+    <string name="incoming_file_confirm_cancel" msgid="2973321832477704805">"अस्वीकार करें"</string>
+    <string name="incoming_file_confirm_ok" msgid="281462442932231475">"स्वीकार करें"</string>
     <string name="incoming_file_confirm_timeout_ok" msgid="1414676773249857278">"ठीक है"</string>
     <string name="incoming_file_confirm_timeout_content" msgid="172779756093975981">"\"<xliff:g id="SENDER">%1$s</xliff:g>\" से आने वाली फ़ाइल स्वीकार करते हुए टाइम आउट हो गया."</string>
     <string name="incoming_file_confirm_Notification_title" msgid="5573329005298936903">"आवक फ़ाइल"</string>
@@ -53,9 +53,9 @@
     <string name="download_line5" msgid="3069560415845295386">"फ़ाइल पा रहा है…"</string>
     <string name="download_cancel" msgid="9177305996747500768">"रोकें"</string>
     <string name="download_ok" msgid="5000360731674466039">"छुपाएं"</string>
-    <string name="incoming_line1" msgid="2127419875681087545">"प्रेषक"</string>
-    <string name="incoming_line2" msgid="3348994249285315873">"फ़ाइल नाम"</string>
-    <string name="incoming_line3" msgid="7954237069667474024">"आकार"</string>
+    <string name="incoming_line1" msgid="2127419875681087545">"भेजने वाला"</string>
+    <string name="incoming_line2" msgid="3348994249285315873">"फ़ाइल का नाम"</string>
+    <string name="incoming_line3" msgid="7954237069667474024">"साइज़"</string>
     <string name="download_fail_line1" msgid="3846450148862894552">"फ़ाइल नहीं मिली"</string>
     <string name="download_fail_line2" msgid="8950394574689971071">"फ़ाइल: <xliff:g id="FILE">%1$s</xliff:g>"</string>
     <string name="download_fail_line3" msgid="3451040656154861722">"कारण: <xliff:g id="REASON">%1$s</xliff:g>"</string>

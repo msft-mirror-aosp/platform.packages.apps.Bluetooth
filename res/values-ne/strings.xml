@@ -38,13 +38,13 @@
     <string name="incoming_file_confirm_timeout_content" msgid="172779756093975981">"\"<xliff:g id="SENDER">%1$s</xliff:g>\" बाट आगमन फाइल स्वीकार्दा समय सकिएको थियो"</string>
     <string name="incoming_file_confirm_Notification_title" msgid="5573329005298936903">"आगमन फाइल"</string>
     <string name="incoming_file_confirm_Notification_content" msgid="6237487486781004992">"<xliff:g id="SENDER">%1$s</xliff:g> निम्न फाइल पठाउन तयार हुनुहुन्छ: <xliff:g id="FILE">%2$s</xliff:g>"</string>
-    <string name="notification_receiving" msgid="4674648179652543984">"ब्लुटुथ साझेदारी:<xliff:g id="FILE">%1$s</xliff:g> प्राप्त गर्दै"</string>
-    <string name="notification_received" msgid="3324588019186687985">"ब्लुटुथ साझेदारी: <xliff:g id="FILE">%1$s</xliff:g> प्राप्त भयो"</string>
-    <string name="notification_received_fail" msgid="3619350997285714746">"ब्लुटुथ साझेदारी: फाइल: <xliff:g id="FILE">%1$s</xliff:g> प्राप्त भएन"</string>
-    <string name="notification_sending" msgid="3035748958534983833">"ब्लुटुथ साझेदारी: <xliff:g id="FILE">%1$s</xliff:g> पठाउँदै"</string>
-    <string name="notification_sent" msgid="9218710861333027778">"ब्लुटुथ साझेदारी: <xliff:g id="FILE">%1$s</xliff:g> पठाइयो"</string>
+    <string name="notification_receiving" msgid="4674648179652543984">"ब्लुटुथ सेयर:<xliff:g id="FILE">%1$s</xliff:g> प्राप्त गर्दै"</string>
+    <string name="notification_received" msgid="3324588019186687985">"ब्लुटुथ सेयर: <xliff:g id="FILE">%1$s</xliff:g> प्राप्त भयो"</string>
+    <string name="notification_received_fail" msgid="3619350997285714746">"ब्लुटुथ सेयर: फाइल: <xliff:g id="FILE">%1$s</xliff:g> प्राप्त भएन"</string>
+    <string name="notification_sending" msgid="3035748958534983833">"ब्लुटुथ सेयर: <xliff:g id="FILE">%1$s</xliff:g> पठाउँदै"</string>
+    <string name="notification_sent" msgid="9218710861333027778">"ब्लुटुथ सेयर: <xliff:g id="FILE">%1$s</xliff:g> पठाइयो"</string>
     <string name="notification_sent_complete" msgid="302943281067557969">"१००% पुरा"</string>
-    <string name="notification_sent_fail" msgid="6696082233774569445">"ब्लुटुथ साझेदारी: फाइल<xliff:g id="FILE">%1$s</xliff:g> पठाइएन"</string>
+    <string name="notification_sent_fail" msgid="6696082233774569445">"ब्लुटुथ सेयर: फाइल<xliff:g id="FILE">%1$s</xliff:g> पठाइएन"</string>
     <string name="download_title" msgid="3353228219772092586">"फाइल स्थानान्तरण"</string>
     <string name="download_line1" msgid="4926604799202134144">"बाट: \"<xliff:g id="SENDER">%1$s</xliff:g>\""</string>
     <string name="download_line2" msgid="5876973543019417712">"फाइल: <xliff:g id="FILE">%1$s</xliff:g>"</string>
@@ -107,8 +107,8 @@
     <string name="outbound_history_title" msgid="4279418703178140526">"आउटबाउन्ड स्थानान्तरण"</string>
     <string name="no_transfers" msgid="3482965619151865672">"अहिलेसम्म कुनै वस्तु ट्रान्सफर गरिएको छैन।"</string>
     <string name="transfer_clear_dlg_msg" msgid="1712376797268438075">"सूचीबाट सम्पूर्ण वस्तुहरू मेटाइने छन्।"</string>
-    <string name="outbound_noti_title" msgid="8051906709452260849">"ब्लुटुथ साझेदारी: पठाइएका फाइलहरू"</string>
-    <string name="inbound_noti_title" msgid="4143352641953027595">"ब्लुटुथ साझेदारी: प्राप्त फाइलहरू"</string>
+    <string name="outbound_noti_title" msgid="8051906709452260849">"ब्लुटुथ सेयर: पठाइएका फाइलहरू"</string>
+    <string name="inbound_noti_title" msgid="4143352641953027595">"ब्लुटुथ सेयर: प्राप्त फाइलहरू"</string>
     <plurals name="noti_caption_unsuccessful" formatted="false" msgid="2020750076679526122">
       <item quantity="other"><xliff:g id="UNSUCCESSFUL_NUMBER_1">%1$d</xliff:g> असफल।</item>
       <item quantity="one"><xliff:g id="UNSUCCESSFUL_NUMBER_0">%1$d</xliff:g> असफल।</item>
