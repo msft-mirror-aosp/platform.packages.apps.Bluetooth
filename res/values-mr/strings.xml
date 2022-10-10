@@ -37,7 +37,7 @@
     <string name="incoming_file_confirm_timeout_ok" msgid="1414676773249857278">"ठीक"</string>
     <string name="incoming_file_confirm_timeout_content" msgid="172779756093975981">"\"<xliff:g id="SENDER">%1$s</xliff:g>\" कडील फाइल स्‍वीकार करताना वेळ संपली."</string>
     <string name="incoming_file_confirm_Notification_title" msgid="5573329005298936903">"येणारी फाइल"</string>
-    <string name="incoming_file_confirm_Notification_content" msgid="6237487486781004992">"<xliff:g id="SENDER">%1$s</xliff:g>फाइल पाठवण्यास तयार आहे: <xliff:g id="FILE">%2$s</xliff:g>"</string>
+    <string name="incoming_file_confirm_Notification_content" msgid="6237487486781004992">"<xliff:g id="SENDER">%1$s</xliff:g> फाइल पाठवण्यास तयार आहे: <xliff:g id="FILE">%2$s</xliff:g>"</string>
     <string name="notification_receiving" msgid="4674648179652543984">"ब्लूटूथ शेअर: <xliff:g id="FILE">%1$s</xliff:g> मिळवत आहे"</string>
     <string name="notification_received" msgid="3324588019186687985">"ब्लूटूथ शेअर: <xliff:g id="FILE">%1$s</xliff:g> प्राप्त केली"</string>
     <string name="notification_received_fail" msgid="3619350997285714746">"ब्लूटूथ शेअर: <xliff:g id="FILE">%1$s</xliff:g> फाइल प्राप्त केली नाही"</string>
@@ -90,7 +90,7 @@
     <string name="status_pending" msgid="2503691772030877944">"फाइल स्थानांतरणाचा अद्याप सुरू झाला नाही."</string>
     <string name="status_running" msgid="6562808920311008696">"फाइल स्थानांतर सुरू आहे."</string>
     <string name="status_success" msgid="239573225847565868">"फाइल स्थानांतरण यशस्वीरित्या पूर्ण झाले."</string>
-    <string name="status_not_accept" msgid="1695082417193780738">"आशय समर्थित नाही."</string>
+    <string name="status_not_accept" msgid="1695082417193780738">"आशयाला सपोर्ट नाही."</string>
     <string name="status_forbidden" msgid="613956401054050725">"लक्ष्‍य डिव्‍हाइसद्वारे स्‍थानांतरण निषिद्ध केले."</string>
     <string name="status_canceled" msgid="6664490318773098285">"वापरकर्त्याने स्‍थानांतरण रद्द केले."</string>
     <string name="status_file_error" msgid="3671917770630165299">"संचयन समस्‍या."</string>
